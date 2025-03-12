@@ -116,61 +116,82 @@ def create_fallback_questions(member, count=5):
     suggestions = []
     common_questions = {
         "thể thao": [
-            "Bạn có theo dõi sự kiện thể thao nào gần đây không?",
-            "Có môn thể thao mới nào bạn muốn thử không?",
-            "Làm thế nào để duy trì thói quen tập thể dục đều đặn?",
-            "Bạn nghĩ gì về xu hướng thể thao hiện nay?"
+            "Kết quả cúp châu Âu hôm nay là gì?",
+            "Thông tin mới nhất về chuyển nhượng cầu thủ?",
+            "Lịch thi đấu bóng đá trong tuần này?",
+            "Bảng xếp hạng Ngoại hạng Anh hiện tại?",
+            "Ai đang dẫn đầu giải Grand Slam tennis năm nay?",
+            "Kết quả trận đấu giữa đội tuyển Việt Nam?"
         ],
         "nấu ăn": [
-            "Bạn đã thử món ăn mới nào gần đây?",
-            "Làm thế nào để cải thiện kỹ năng nấu ăn?",
-            "Bạn có bí quyết nấu ăn nào muốn chia sẻ không?",
-            "Món ăn nào bạn muốn học cách làm tiếp theo?"
+            "Công thức làm bánh mì homemade?",
+            "Cách nấu phở bò truyền thống?",
+            "Bí quyết làm sushi tại nhà?",
+            "Công thức làm bánh trung thu nhân thập cẩm?",
+            "Menu đồ ăn healthy trong 7 ngày?"
         ],
         "đọc sách": [
-            "Bạn đang đọc cuốn sách nào?",
-            "Tác giả nào truyền cảm hứng cho bạn nhất?",
-            "Bạn thích thể loại sách nào nhất?",
-            "Cuốn sách nào đã thay đổi cách nhìn của bạn?"
+            "Top 10 sách bán chạy nhất tháng này?",
+            "Sách mới của tác giả Nguyễn Nhật Ánh?",
+            "Tóm tắt tiểu thuyết 'Trăm năm cô đơn'?",
+            "Những cuốn sách về tài chính cá nhân hay nhất?"
         ],
         "du lịch": [
-            "Địa điểm nào đang nằm trong danh sách du lịch của bạn?",
-            "Trải nghiệm du lịch nào đáng nhớ nhất với bạn?",
-            "Bạn thích du lịch theo cách nào?",
-            "Bạn muốn khám phá văn hóa nào tiếp theo?"
+            "Chi phí du lịch Đà Nẵng 3 ngày 2 đêm?",
+            "Thời tiết ở Đà Lạt tháng này thế nào?",
+            "Kinh nghiệm du lịch Phú Quốc tự túc?",
+            "Những địa điểm du lịch mới nổi ở Việt Nam?"
         ],
         "âm nhạc": [
-            "Bạn đang nghe nhạc gì gần đây?",
-            "Buổi hòa nhạc nào bạn muốn tham dự?",
-            "Thể loại nhạc nào làm bạn thư giãn nhất?",
-            "Bạn có chơi nhạc cụ nào không?"
+            "Album mới nhất của Sơn Tùng MTP?",
+            "Lịch concert của các nghệ sĩ tại Việt Nam?",
+            "Top 10 bài hát đang thịnh hành trên Spotify?",
+            "Thông tin về giải thưởng Grammy năm nay?"
         ],
         "công nghệ": [
-            "Công nghệ mới nào bạn quan tâm gần đây?",
-            "Bạn nghĩ sao về xu hướng AI hiện nay?",
-            "Thiết bị công nghệ nào đã thay đổi cuộc sống của bạn?",
-            "Bạn dùng ứng dụng nào nhiều nhất?"
+            "So sánh iPhone 15 Pro và Samsung S24 Ultra?",
+            "Mẫu laptop mới nhất của Apple?",
+            "Thông tin về công nghệ AI trong y tế?",
+            "Cách bảo vệ dữ liệu cá nhân trên điện thoại?"
         ],
         "làm vườn": [
-            "Bạn đang trồng cây gì trong vườn?",
-            "Mùa này phù hợp để trồng loại cây nào?",
-            "Bạn có mẹo nào để chăm sóc cây trồng?",
-            "Không gian xanh yêu thích của bạn là gì?"
+            "Cách trồng rau sạch trong nhà phố?",
+            "Loại cây cảnh dễ chăm sóc trong nhà?",
+            "Cách xử lý sâu bệnh trên cây hoa hồng?",
+            "Lịch trồng rau theo mùa tại Việt Nam?"
+        ],
+        "phim ảnh": [
+            "Phim Việt Nam mới ra rạp tháng này?",
+            "Top phim Netflix đang hot?",
+            "Lịch chiếu phim Marvel sắp tới?",
+            "Đánh giá về phim 'Nhà bà Nữ'?"
+        ],
+        "giáo dục": [
+            "Lịch thi tốt nghiệp THPT năm nay?",
+            "Thông tin về các trường đại học top đầu Việt Nam?",
+            "Kinh nghiệm ôn thi đại học hiệu quả?",
+            "Các khóa học online chất lượng về lập trình?"
+        ],
+        "sức khỏe": [
+            "Cách phòng tránh bệnh cúm mùa?",
+            "Lịch tiêm vaccine cho trẻ em?",
+            "Chế độ ăn giảm cân khoa học?",
+            "Cách chăm sóc người già trong mùa lạnh?"
         ]
     }
     
-    # Câu hỏi chung cho mọi người
-    general_questions = [
-        "Bạn đang có dự định gì cho ngày hôm nay?",
-        "Có điều gì làm bạn vui trong tuần này không?",
-        "Bạn muốn tìm hiểu thêm về chủ đề nào?",
-        "Có hoạt động gia đình nào bạn đang lên kế hoạch?",
-        "Bạn đang gặp khó khăn với vấn đề nào?",
-        "Điều gì đang khiến bạn tò mò gần đây?",
-        "Bạn muốn tôi giúp gì cho bạn hôm nay?",
-        "Có kỹ năng mới nào bạn muốn học?",
-        "Bạn có mục tiêu cá nhân nào trong thời gian tới?",
-        "Làm thế nào để cải thiện không khí gia đình?"
+    # Câu hỏi liên quan đến thông tin thời sự và cập nhật
+    general_info_questions = [
+        "Tin tức nổi bật trong nước hôm nay?",
+        "Giá vàng hiện tại như thế nào?",
+        "Tỷ giá USD/VND hôm nay?",
+        "Dự báo thời tiết cuối tuần này?",
+        "Tình hình giao thông tại Hà Nội/TP.HCM?",
+        "Lịch cắt điện trong khu vực hôm nay?",
+        "Kết quả xổ số miền Bắc/Trung/Nam hôm qua?",
+        "Thông tin về chính sách mới của chính phủ?",
+        "Giá xăng dầu mới nhất?",
+        "Lịch nghỉ lễ tết sắp tới?"
     ]
     
     # Lấy câu hỏi dựa trên sở thích
@@ -188,13 +209,13 @@ def create_fallback_questions(member, count=5):
             suggestions.extend(common_questions[matched_topic])
         else:
             # Nếu không tìm thấy, tạo câu hỏi chung cho sở thích đó
-            suggestions.append(f"Bạn đã khám phá điều gì mới về {interest} gần đây?")
-            suggestions.append(f"Làm thế nào để phát triển đam mê với {interest}?")
+            suggestions.append(f"Thông tin mới nhất về {interest}?")
+            suggestions.append(f"Top 5 sự kiện liên quan đến {interest} gần đây?")
     
-    # Bổ sung thêm câu hỏi chung nếu cần
+    # Bổ sung thêm câu hỏi thông tin chung
     import random
-    random.shuffle(general_questions)
-    suggestions.extend(general_questions)
+    random.shuffle(general_info_questions)
+    suggestions.extend(general_info_questions)
     
     # Loại bỏ trùng lặp và giới hạn số lượng
     unique_suggestions = []
