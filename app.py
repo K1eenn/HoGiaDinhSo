@@ -55,37 +55,157 @@ def load_family_data():
         return default_data
 
 # Tạo gợi ý câu hỏi dựa trên sở thích
-def generate_question_suggestions(member):
+def generate_question_suggestions(member, client=None):
     suggestions = []
     
-    if member and "interests" in member:
-        for interest in member["interests"]:
-            if interest == "thể thao":
-                suggestions.append("Có tin tức gì mới về bóng đá không?")
-                suggestions.append("Gợi ý một số bài tập thể dục tại nhà?")
-            elif interest == "nấu ăn":
-                suggestions.append("Món ăn nào dễ làm cho bữa tối hôm nay?")
-                suggestions.append("Công thức làm bánh chocolate đơn giản?")
-            elif interest == "đầu tư":
-                suggestions.append("Các hình thức đầu tư an toàn cho người mới?")
-                suggestions.append("Tư vấn về quản lý tài chính gia đình?")
-            elif interest == "làm vườn":
-                suggestions.append("Cách chăm sóc cây trong nhà vào mùa đông?")
-                suggestions.append("Loại rau nào dễ trồng trong chậu tại nhà?")
-            elif interest == "sách":
-                suggestions.append("Gợi ý một số sách hay về chủ đề phát triển bản thân?")
-                suggestions.append("Có tiểu thuyết mới nào đáng đọc không?")
-            elif interest == "du lịch":
-                suggestions.append("Những địa điểm du lịch gia đình phù hợp với trẻ em?")
-                suggestions.append("Mẹo tiết kiệm chi phí khi đi du lịch gia đình?")
-            else:
-                suggestions.append(f"Chia sẻ thông tin thú vị về {interest}?")
+    # Nếu không có thông tin thành viên, trả về câu hỏi mặc định
+    if not member or "interests" not in member or not member["interests"]:
+        return [
+            "Bạn muốn biết thêm thông tin gì hôm nay?",
+            "Có vấn đề gì tôi có thể giúp đỡ?",
+            "Bạn có dự định gì cho ngày hôm nay?",
+            "Bạn muốn tìm hiểu về chủ đề nào?",
+            "Có hoạt động gia đình nào bạn đang lên kế hoạch?",
+            "Bạn đang quan tâm đến vấn đề gì?",
+            "Bạn muốn tôi gợi ý món ăn, hoạt động hay thông tin gì?",
+            "Có chủ đề cụ thể nào bạn muốn thảo luận hôm nay?"
+        ]
     
-    # Thêm các câu hỏi chung
-    suggestions.append("Gợi ý hoạt động gia đình cho cuối tuần này?")
-    suggestions.append("Lời khuyên về cân bằng công việc và thời gian cho gia đình?")
+    # Nếu có API client, tạo câu hỏi động từ GPT
+    if client:
+        try:
+            interests_str = ", ".join(member["interests"])
+            prompt = f"""
+            Tạo 5 câu hỏi gợi ý đa dạng cho người dùng có tên "{member['name']}" với các sở thích: {interests_str}.
+            Câu hỏi nên thú vị, phù hợp với thời điểm hiện tại, và kích thích cuộc trò chuyện.
+            Đảm bảo câu hỏi đa dạng và không lặp lại.
+            Chỉ trả về danh sách câu hỏi, mỗi câu một dòng, không có số thứ tự hay dấu gạch đầu dòng.
+            """
+            
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": "Bạn là một trợ lý giúp tạo câu hỏi gợi ý dựa trên sở thích của người dùng."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=512
+            )
+            
+            # Tách các câu hỏi từ phản hồi
+            generated_questions = response.choices[0].message.content.strip().split('\n')
+            # Lọc các dòng trống và loại bỏ dấu gạch đầu dòng hoặc số nếu có
+            suggestions = [q.strip().replace('- ', '').replace('* ', '') for q in generated_questions if q.strip()]
+            
+            # Đảm bảo có ít nhất 5 câu hỏi
+            if len(suggestions) < 5:
+                remaining = 5 - len(suggestions)
+                suggestions.extend(create_fallback_questions(member, remaining))
+                
+            return suggestions[:5]
+            
+        except Exception as e:
+            print(f"Lỗi khi tạo câu hỏi động: {e}")
+            # Nếu có lỗi, sử dụng phương pháp fallback
+            
+    # Phương pháp dự phòng - tạo câu hỏi dựa trên sở thích
+    return create_fallback_questions(member, 5)
+
+# Hàm tạo câu hỏi dự phòng khi không thể sử dụng API
+def create_fallback_questions(member, count=5):
+    suggestions = []
+    common_questions = {
+        "thể thao": [
+            "Bạn có theo dõi sự kiện thể thao nào gần đây không?",
+            "Có môn thể thao mới nào bạn muốn thử không?",
+            "Làm thế nào để duy trì thói quen tập thể dục đều đặn?",
+            "Bạn nghĩ gì về xu hướng thể thao hiện nay?"
+        ],
+        "nấu ăn": [
+            "Bạn đã thử món ăn mới nào gần đây?",
+            "Làm thế nào để cải thiện kỹ năng nấu ăn?",
+            "Bạn có bí quyết nấu ăn nào muốn chia sẻ không?",
+            "Món ăn nào bạn muốn học cách làm tiếp theo?"
+        ],
+        "đọc sách": [
+            "Bạn đang đọc cuốn sách nào?",
+            "Tác giả nào truyền cảm hứng cho bạn nhất?",
+            "Bạn thích thể loại sách nào nhất?",
+            "Cuốn sách nào đã thay đổi cách nhìn của bạn?"
+        ],
+        "du lịch": [
+            "Địa điểm nào đang nằm trong danh sách du lịch của bạn?",
+            "Trải nghiệm du lịch nào đáng nhớ nhất với bạn?",
+            "Bạn thích du lịch theo cách nào?",
+            "Bạn muốn khám phá văn hóa nào tiếp theo?"
+        ],
+        "âm nhạc": [
+            "Bạn đang nghe nhạc gì gần đây?",
+            "Buổi hòa nhạc nào bạn muốn tham dự?",
+            "Thể loại nhạc nào làm bạn thư giãn nhất?",
+            "Bạn có chơi nhạc cụ nào không?"
+        ],
+        "công nghệ": [
+            "Công nghệ mới nào bạn quan tâm gần đây?",
+            "Bạn nghĩ sao về xu hướng AI hiện nay?",
+            "Thiết bị công nghệ nào đã thay đổi cuộc sống của bạn?",
+            "Bạn dùng ứng dụng nào nhiều nhất?"
+        ],
+        "làm vườn": [
+            "Bạn đang trồng cây gì trong vườn?",
+            "Mùa này phù hợp để trồng loại cây nào?",
+            "Bạn có mẹo nào để chăm sóc cây trồng?",
+            "Không gian xanh yêu thích của bạn là gì?"
+        ]
+    }
     
-    return suggestions[:5]  # Giới hạn 5 gợi ý
+    # Câu hỏi chung cho mọi người
+    general_questions = [
+        "Bạn đang có dự định gì cho ngày hôm nay?",
+        "Có điều gì làm bạn vui trong tuần này không?",
+        "Bạn muốn tìm hiểu thêm về chủ đề nào?",
+        "Có hoạt động gia đình nào bạn đang lên kế hoạch?",
+        "Bạn đang gặp khó khăn với vấn đề nào?",
+        "Điều gì đang khiến bạn tò mò gần đây?",
+        "Bạn muốn tôi giúp gì cho bạn hôm nay?",
+        "Có kỹ năng mới nào bạn muốn học?",
+        "Bạn có mục tiêu cá nhân nào trong thời gian tới?",
+        "Làm thế nào để cải thiện không khí gia đình?"
+    ]
+    
+    # Lấy câu hỏi dựa trên sở thích
+    for interest in member["interests"]:
+        interest_lower = interest.lower()
+        # Tìm chủ đề gần nhất trong danh sách common_questions
+        matched_topic = None
+        for topic in common_questions:
+            if topic in interest_lower or interest_lower in topic:
+                matched_topic = topic
+                break
+        
+        # Nếu tìm thấy chủ đề phù hợp, thêm câu hỏi liên quan
+        if matched_topic:
+            suggestions.extend(common_questions[matched_topic])
+        else:
+            # Nếu không tìm thấy, tạo câu hỏi chung cho sở thích đó
+            suggestions.append(f"Bạn đã khám phá điều gì mới về {interest} gần đây?")
+            suggestions.append(f"Làm thế nào để phát triển đam mê với {interest}?")
+    
+    # Bổ sung thêm câu hỏi chung nếu cần
+    import random
+    random.shuffle(general_questions)
+    suggestions.extend(general_questions)
+    
+    # Loại bỏ trùng lặp và giới hạn số lượng
+    unique_suggestions = []
+    for s in suggestions:
+        if s not in unique_suggestions:
+            unique_suggestions.append(s)
+    
+    # Xáo trộn để có sự đa dạng
+    random.shuffle(unique_suggestions)
+    
+    return unique_suggestions[:count]
 
 # Hàm tạo tin nhắn hệ thống cho AI
 def create_system_message(member):
@@ -109,7 +229,15 @@ def get_image_base64(image_raw):
 
 # Hàm gửi tin nhắn và nhận phản hồi từ AI
 def stream_llm_response(api_key, member):
+    # Cập nhật cache ngày hôm nay để AI biết ngày hiện tại
+    from datetime import datetime
+    today = datetime.now().strftime("%d/%m/%Y")
+    day_of_week = datetime.now().strftime("%A")
+    
+    # Tạo tin nhắn hệ thống với thông tin cá nhân hóa và ngày hiện tại
     system_message = create_system_message(member)
+    system_message += f"\nHôm nay là {day_of_week}, ngày {today}."
+    
     messages = [{"role": "system", "content": system_message}] + st.session_state.messages
     
     client = OpenAI(api_key=api_key)
@@ -139,6 +267,33 @@ def main():
         layout="centered",
         initial_sidebar_state="expanded",
     )
+    
+    # Thiết lập CSS tùy chỉnh
+    st.markdown("""
+    <style>
+    .stButton button {
+        background-color: #f0f2f6;
+        border-radius: 20px;
+        transition: all 0.3s;
+    }
+    .stButton button:hover {
+        background-color: #e0e2e6;
+        transform: translateY(-2px);
+    }
+    div[data-testid="column"] > div.stButton > button {
+        min-height: 60px;
+        white-space: normal !important;
+        word-wrap: break-word;
+        height: auto;
+    }
+    .chat-message {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+        display: flex;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # --- Tiêu đề ---
     st.markdown("<h1 style='text-align: center; color: #6ca395;'>👪 <i>Trợ lý Gia đình</i> 💬</h1>", unsafe_allow_html=True)
@@ -211,11 +366,16 @@ def main():
                 member = st.session_state.current_member
                 edit_interests = st.text_area(
                     "Sở thích (mỗi sở thích một dòng)", 
-                    value="\n".join(member["interests"]) if "interests" in member else ""
+                    value="\n".join(member["interests"]) if "interests" in member else "",
+                    key=f"edit_interests_{member['name']}"
                 )
-                edit_notes = st.text_area("Ghi chú", value=member.get("notes", ""))
+                edit_notes = st.text_area(
+                    "Ghi chú", 
+                    value=member.get("notes", ""),
+                    key=f"edit_notes_{member['name']}"
+                )
                 
-                if st.button("Cập nhật"):
+                if st.button("Cập nhật", key=f"update_btn_{member['name']}"):
                     for m in st.session_state.family_data["members"]:
                         if m["name"] == member["name"]:
                             m["interests"] = [interest.strip() for interest in edit_interests.split("\n") if interest.strip()]
@@ -227,7 +387,7 @@ def main():
                     st.success("Đã cập nhật thông tin")
                     st.experimental_rerun()
                 
-                if st.button("Xóa thành viên", type="primary", use_container_width=True):
+                if st.button("Xóa thành viên", key=f"delete_btn_{member['name']}", type="primary", use_container_width=True):
                     st.session_state.family_data["members"] = [
                         m for m in st.session_state.family_data["members"] 
                         if m["name"] != member["name"]
@@ -244,8 +404,10 @@ def main():
         def reset_conversation():
             if "messages" in st.session_state:
                 st.session_state.messages = []
+            if "question_suggestions" in st.session_state:
+                st.session_state.pop("question_suggestions")
         
-        st.button("🗑️ Xóa cuộc hội thoại", on_click=reset_conversation)
+        st.button("🗑️ Xóa cuộc hội thoại", on_click=reset_conversation, key="reset_conversation_btn")
 
     # --- Kiểm tra API Key ---
     if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
@@ -268,29 +430,60 @@ def main():
             if member.get("notes"):
                 st.write(f"**Ghi chú:** {member['notes']}")
     
-    # --- Hiển thị gợi ý câu hỏi ---
+    # --- Hiển thị gợi ý câu hỏi và nút làm mới ---
     if st.session_state.current_member:
-        suggestions = generate_question_suggestions(st.session_state.current_member)
-        cols = st.columns(len(suggestions))
+        # Lưu trữ gợi ý trong session_state để có thể làm mới
+        if "question_suggestions" not in st.session_state:
+            client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+            st.session_state.question_suggestions = generate_question_suggestions(
+                st.session_state.current_member, 
+                client
+            )
         
-        for i, suggestion in enumerate(suggestions):
-            if cols[i].button(suggestion, key=f"suggestion_{i}", use_container_width=True):
-                # Thêm câu hỏi được chọn vào tin nhắn
-                st.session_state.messages.append({"role": "user", "content": suggestion})
-                
-                # Hiển thị tin nhắn người dùng
-                with st.chat_message("user"):
-                    st.write(suggestion)
-                
-                # Hiển thị phản hồi của AI
-                with st.chat_message("assistant"):
-                    st.write_stream(stream_llm_response(
-                        api_key=openai_api_key,
-                        member=st.session_state.current_member
-                    ))
-                
-                # Buộc trang làm mới để hiển thị đúng
-                st.experimental_rerun()
+        # Hiển thị nút làm mới gợi ý
+        refresh_col, title_col = st.columns([1, 9])
+        with refresh_col:
+            if st.button("🔄", key="refresh_suggestions", help="Làm mới gợi ý câu hỏi"):
+                client = OpenAI(api_key=openai_api_key) if openai_api_key else None
+                st.session_state.question_suggestions = generate_question_suggestions(
+                    st.session_state.current_member, 
+                    client
+                )
+        
+        with title_col:
+            st.markdown("### Gợi ý câu hỏi")
+        
+        # Hiển thị các gợi ý
+        suggestions = st.session_state.question_suggestions
+        
+        # Tính số cột tối đa (trên thiết bị nhỏ không thể hiện quá nhiều cột)
+        max_cols = min(len(suggestions), 3)
+        # Tạo các hàng cho gợi ý
+        for i in range(0, len(suggestions), max_cols):
+            # Lấy số lượng cột cho hàng hiện tại (có thể ít hơn max_cols ở hàng cuối)
+            num_cols = min(max_cols, len(suggestions) - i)
+            cols = st.columns(num_cols)
+            
+            for j in range(num_cols):
+                idx = i + j
+                suggestion = suggestions[idx]
+                if cols[j].button(suggestion, key=f"suggestion_{idx}", use_container_width=True):
+                    # Thêm câu hỏi được chọn vào tin nhắn
+                    st.session_state.messages.append({"role": "user", "content": suggestion})
+                    
+                    # Hiển thị tin nhắn người dùng
+                    with st.chat_message("user"):
+                        st.write(suggestion)
+                    
+                    # Hiển thị phản hồi của AI
+                    with st.chat_message("assistant"):
+                        st.write_stream(stream_llm_response(
+                            api_key=openai_api_key,
+                            member=st.session_state.current_member
+                        ))
+                    
+                    # Buộc trang làm mới để hiển thị đúng
+                    st.experimental_rerun()
 
     # --- Chức năng ghi âm ---
     st.divider()
