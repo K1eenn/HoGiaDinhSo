@@ -6,435 +6,346 @@ from PIL import Image
 from audio_recorder_streamlit import audio_recorder
 import base64
 from io import BytesIO
-import google.generativeai as genai
-import random
-import anthropic
+import json
+import os.path
 
+# Tải biến môi trường từ file .env (nếu có)
 dotenv.load_dotenv()
 
+# Chỉ sử dụng model GPT-4o-mini
+MODEL_NAME = "gpt-4o-mini"
 
-anthropic_models = [
-    "claude-3-5-sonnet-20240620"
-]
+# Đường dẫn file lưu trữ dữ liệu
+DATA_FILE = "family_data.json"
 
-google_models = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-]
+# Hàm lưu dữ liệu gia đình
+def save_family_data(data):
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-openai_models = [
-    "gpt-4o", 
-    "gpt-4-turbo", 
-    "gpt-3.5-turbo-16k", 
-    "gpt-4", 
-    "gpt-4-32k",
-]
-
-
-# Function to convert the messages format from OpenAI and Streamlit to Gemini
-def messages_to_gemini(messages):
-    gemini_messages = []
-    prev_role = None
-    for message in messages:
-        if prev_role and (prev_role == message["role"]):
-            gemini_message = gemini_messages[-1]
-        else:
-            gemini_message = {
-                "role": "model" if message["role"] == "assistant" else "user",
-                "parts": [],
-            }
-
-        for content in message["content"]:
-            if content["type"] == "text":
-                gemini_message["parts"].append(content["text"])
-            elif content["type"] == "image_url":
-                gemini_message["parts"].append(base64_to_image(content["image_url"]["url"]))
-            elif content["type"] == "video_file":
-                gemini_message["parts"].append(genai.upload_file(content["video_file"]))
-            elif content["type"] == "audio_file":
-                gemini_message["parts"].append(genai.upload_file(content["audio_file"]))
-
-        if prev_role != message["role"]:
-            gemini_messages.append(gemini_message)
-
-        prev_role = message["role"]
-        
-    return gemini_messages
-
-
-# Function to convert the messages format from OpenAI and Streamlit to Anthropic (the only difference is in the image messages)
-def messages_to_anthropic(messages):
-    anthropic_messages = []
-    prev_role = None
-    for message in messages:
-        if prev_role and (prev_role == message["role"]):
-            anthropic_message = anthropic_messages[-1]
-        else:
-            anthropic_message = {
-                "role": message["role"] ,
-                "content": [],
-            }
-        if message["content"][0]["type"] == "image_url":
-            anthropic_message["content"].append(
+# Hàm tải dữ liệu gia đình
+def load_family_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    else:
+        # Tạo dữ liệu mẫu nếu chưa có file
+        default_data = {
+            "members": [
                 {
-                    "type": "image",
-                    "source":{   
-                        "type": "base64",
-                        "media_type": message["content"][0]["image_url"]["url"].split(";")[0].split(":")[1],
-                        "data": message["content"][0]["image_url"]["url"].split(",")[1]
-                        # f"data:{img_type};base64,{img}"
-                    }
+                    "name": "Bố",
+                    "interests": ["thể thao", "tin tức", "đầu tư"],
+                    "dob": "",
+                    "notes": ""
+                },
+                {
+                    "name": "Mẹ",
+                    "interests": ["nấu ăn", "làm vườn", "sách"],
+                    "dob": "",
+                    "notes": ""
                 }
-            )
-        else:
-            anthropic_message["content"].append(message["content"][0])
-
-        if prev_role != message["role"]:
-            anthropic_messages.append(anthropic_message)
-
-        prev_role = message["role"]
-        
-    return anthropic_messages
-
-
-# Function to query and stream the response from the LLM
-def stream_llm_response(model_params, model_type="openai", api_key=None):
-    response_message = ""
-
-    if model_type == "openai":
-        client = OpenAI(api_key=api_key)
-        for chunk in client.chat.completions.create(
-            model=model_params["model"] if "model" in model_params else "gpt-4o",
-            messages=st.session_state.messages,
-            temperature=model_params["temperature"] if "temperature" in model_params else 0.3,
-            max_tokens=4096,
-            stream=True,
-        ):
-            chunk_text = chunk.choices[0].delta.content or ""
-            response_message += chunk_text
-            yield chunk_text
-
-    elif model_type == "google":
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name = model_params["model"],
-            generation_config={
-                "temperature": model_params["temperature"] if "temperature" in model_params else 0.3,
+            ],
+            "family_info": {
+                "address": "",
+                "important_dates": [],
+                "shared_interests": ["du lịch", "ăn uống"]
             }
-        )
-        gemini_messages = messages_to_gemini(st.session_state.messages)
+        }
+        save_family_data(default_data)
+        return default_data
 
-        for chunk in model.generate_content(
-            contents=gemini_messages,
-            stream=True,
-        ):
-            chunk_text = chunk.text or ""
-            response_message += chunk_text
-            yield chunk_text
+# Tạo gợi ý câu hỏi dựa trên sở thích
+def generate_question_suggestions(member):
+    suggestions = []
+    
+    if member and "interests" in member:
+        for interest in member["interests"]:
+            if interest == "thể thao":
+                suggestions.append("Có tin tức gì mới về bóng đá không?")
+                suggestions.append("Gợi ý một số bài tập thể dục tại nhà?")
+            elif interest == "nấu ăn":
+                suggestions.append("Món ăn nào dễ làm cho bữa tối hôm nay?")
+                suggestions.append("Công thức làm bánh chocolate đơn giản?")
+            elif interest == "đầu tư":
+                suggestions.append("Các hình thức đầu tư an toàn cho người mới?")
+                suggestions.append("Tư vấn về quản lý tài chính gia đình?")
+            elif interest == "làm vườn":
+                suggestions.append("Cách chăm sóc cây trong nhà vào mùa đông?")
+                suggestions.append("Loại rau nào dễ trồng trong chậu tại nhà?")
+            elif interest == "sách":
+                suggestions.append("Gợi ý một số sách hay về chủ đề phát triển bản thân?")
+                suggestions.append("Có tiểu thuyết mới nào đáng đọc không?")
+            elif interest == "du lịch":
+                suggestions.append("Những địa điểm du lịch gia đình phù hợp với trẻ em?")
+                suggestions.append("Mẹo tiết kiệm chi phí khi đi du lịch gia đình?")
+            else:
+                suggestions.append(f"Chia sẻ thông tin thú vị về {interest}?")
+    
+    # Thêm các câu hỏi chung
+    suggestions.append("Gợi ý hoạt động gia đình cho cuối tuần này?")
+    suggestions.append("Lời khuyên về cân bằng công việc và thời gian cho gia đình?")
+    
+    return suggestions[:5]  # Giới hạn 5 gợi ý
 
-    elif model_type == "anthropic":
-        client = anthropic.Anthropic(api_key=api_key)
-        with client.messages.stream(
-            model=model_params["model"] if "model" in model_params else "claude-3-5-sonnet-20240620",
-            messages=messages_to_anthropic(st.session_state.messages),
-            temperature=model_params["temperature"] if "temperature" in model_params else 0.3,
-            max_tokens=4096,
-        ) as stream:
-            for text in stream.text_stream:
-                response_message += text
-                yield text
+# Hàm tạo tin nhắn hệ thống cho AI
+def create_system_message(member):
+    if not member:
+        return "Bạn là trợ lý gia đình thông minh, giúp đỡ mọi thành viên trong gia đình với các vấn đề hàng ngày."
+    
+    interests_str = ", ".join(member["interests"]) if "interests" in member else "chưa có thông tin"
+    
+    return f"""Bạn là trợ lý gia đình thông minh đang nói chuyện với {member['name']}. 
+Sở thích của họ bao gồm: {interests_str}.
+Hãy cá nhân hóa câu trả lời phù hợp với sở thích và nhu cầu của họ.
+Trả lời một cách thân thiện, hữu ích và tôn trọng.
+"""
 
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": [
-            {
-                "type": "text",
-                "text": response_message,
-            }
-        ]})
-
-
-# Function to convert file to base64
+# Hàm chuyển đổi file thành base64
 def get_image_base64(image_raw):
     buffered = BytesIO()
     image_raw.save(buffered, format=image_raw.format)
     img_byte = buffered.getvalue()
-
     return base64.b64encode(img_byte).decode('utf-8')
 
-def file_to_base64(file):
-    with open(file, "rb") as f:
-
-        return base64.b64encode(f.read())
-
-def base64_to_image(base64_string):
-    base64_string = base64_string.split(",")[1]
+# Hàm gửi tin nhắn và nhận phản hồi từ AI
+def stream_llm_response(api_key, member):
+    system_message = create_system_message(member)
+    messages = [{"role": "system", "content": system_message}] + st.session_state.messages
     
-    return Image.open(BytesIO(base64.b64decode(base64_string)))
+    client = OpenAI(api_key=api_key)
+    response_message = ""
+    
+    for chunk in client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=messages,
+        temperature=0.7,
+        max_tokens=2048,
+        stream=True,
+    ):
+        chunk_text = chunk.choices[0].delta.content or ""
+        response_message += chunk_text
+        yield chunk_text
 
-
+    st.session_state.messages.append({
+        "role": "assistant", 
+        "content": response_message
+    })
 
 def main():
-
-    # --- Page Config ---
+    # --- Cấu hình trang ---
     st.set_page_config(
-        page_title="The OmniChat",
-        page_icon="🤖",
+        page_title="Trợ lý Gia đình",
+        page_icon="👪",
         layout="centered",
         initial_sidebar_state="expanded",
     )
 
-    # --- Header ---
-    st.html("""<h1 style="text-align: center; color: #6ca395;">🤖 <i>The OmniChat</i> 💬</h1>""")
-
-    # --- Side Bar ---
-    with st.sidebar:
-        cols_keys = st.columns(2)
-        with cols_keys[0]:
-            default_openai_api_key = os.getenv("OPENAI_API_KEY") if os.getenv("OPENAI_API_KEY") is not None else ""  # only for development environment, otherwise it should return None
-            with st.popover("🔐 OpenAI"):
-                openai_api_key = st.text_input("Introduce your OpenAI API Key (https://platform.openai.com/)", value=default_openai_api_key, type="password")
-        
-        with cols_keys[1]:
-            default_google_api_key = os.getenv("GOOGLE_API_KEY") if os.getenv("GOOGLE_API_KEY") is not None else ""  # only for development environment, otherwise it should return None
-            with st.popover("🔐 Google"):
-                google_api_key = st.text_input("Introduce your Google API Key (https://aistudio.google.com/app/apikey)", value=default_google_api_key, type="password")
-
-        default_anthropic_api_key = os.getenv("ANTHROPIC_API_KEY") if os.getenv("ANTHROPIC_API_KEY") is not None else ""
-        with st.popover("🔐 Anthropic"):
-            anthropic_api_key = st.text_input("Introduce your Anthropic API Key (https://console.anthropic.com/)", value=default_anthropic_api_key, type="password")
+    # --- Tiêu đề ---
+    st.markdown("<h1 style='text-align: center; color: #6ca395;'>👪 <i>Trợ lý Gia đình</i> 💬</h1>", unsafe_allow_html=True)
     
-    # --- Main Content ---
-    # Checking if the user has introduced the OpenAI API Key, if not, a warning is displayed
-    if (openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key) and (google_api_key == "" or google_api_key is None) and (anthropic_api_key == "" or anthropic_api_key is None):
-        st.write("#")
-        st.warning("⬅️ Please introduce an API Key to continue...")
+    # Tải dữ liệu gia đình
+    if "family_data" not in st.session_state:
+        st.session_state.family_data = load_family_data()
+    
+    # Khởi tạo biến session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    
+    if "current_member" not in st.session_state:
+        st.session_state.current_member = None
 
-        with st.sidebar:
-            st.write("#")
-            st.write("#")
-            st.video("https://www.youtube.com/watch?v=7i9j8M_zidA")
-            st.write("📋[Medium Blog: OpenAI GPT-4o](https://medium.com/@enricdomingo/code-the-omnichat-app-integrating-gpt-4o-your-python-chatgpt-d399b90d178e)")
-            st.video("https://www.youtube.com/watch?v=1IQmWVFNQEs")
-            st.write("📋[Medium Blog: Google Gemini](https://medium.com/@enricdomingo/how-i-add-gemini-1-5-pro-api-to-my-app-chat-with-videos-images-and-audios-f42171606143)")
-            st.video("https://www.youtube.com/watch?v=kXIOazjgV-8")
-            st.write("📋[Medium Blog: Anthropic Claude 3.5](https://medium.com/p/7ec4623e2dac)")
-
-    else:
-        client = OpenAI(api_key=openai_api_key)
-
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-
-        # Displaying the previous messages if there are any
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                for content in message["content"]:
-                    if content["type"] == "text":
-                        st.write(content["text"])
-                    elif content["type"] == "image_url":      
-                        st.image(content["image_url"]["url"])
-                    elif content["type"] == "video_file":
-                        st.video(content["video_file"])
-                    elif content["type"] == "audio_file":
-                        st.audio(content["audio_file"])
-
-        # Side bar model options and inputs
-        with st.sidebar:
-
-            st.divider()
+    # --- Thanh bên (Sidebar) ---
+    with st.sidebar:
+        cols_keys = st.columns(1)
+        with cols_keys[0]:
+            default_openai_api_key = os.getenv("OPENAI_API_KEY") or ""
+            with st.popover("🔐 OpenAI API Key"):
+                openai_api_key = st.text_input("Nhập OpenAI API Key của bạn", 
+                                              value=default_openai_api_key, 
+                                              type="password")
+        
+        st.divider()
+        
+        # Quản lý thành viên gia đình
+        st.subheader("👨‍👩‍👧‍👦 Thành viên gia đình")
+        
+        # Chọn thành viên
+        member_names = [member["name"] for member in st.session_state.family_data["members"]]
+        selected_member = st.selectbox("Chọn thành viên", 
+                                      options=member_names,
+                                      index=0 if member_names else None)
+        
+        # Cập nhật thành viên hiện tại
+        if selected_member:
+            for member in st.session_state.family_data["members"]:
+                if member["name"] == selected_member:
+                    st.session_state.current_member = member
+                    break
+        
+        # Thêm thành viên mới
+        with st.expander("➕ Thêm thành viên mới"):
+            new_name = st.text_input("Tên thành viên")
+            new_interests = st.text_area("Sở thích (mỗi sở thích một dòng)")
+            new_dob = st.date_input("Ngày sinh", value=None)
+            new_notes = st.text_area("Ghi chú")
             
-            available_models = [] + (anthropic_models if anthropic_api_key else []) + (google_models if google_api_key else []) + (openai_models if openai_api_key else [])
-            model = st.selectbox("Select a model:", available_models, index=0)
-            model_type = None
-            if model.startswith("gpt"): model_type = "openai"
-            elif model.startswith("gemini"): model_type = "google"
-            elif model.startswith("claude"): model_type = "anthropic"
-            
-            with st.popover("⚙️ Model parameters"):
-                model_temp = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.3, step=0.1)
-
-            audio_response = st.toggle("Audio response", value=False)
-            if audio_response:
-                cols = st.columns(2)
-                with cols[0]:
-                    tts_voice = st.selectbox("Select a voice:", ["alloy", "echo", "fable", "onyx", "nova", "shimmer"])
-                with cols[1]:
-                    tts_model = st.selectbox("Select a model:", ["tts-1", "tts-1-hd"], index=1)
-
-            model_params = {
-                "model": model,
-                "temperature": model_temp,
-            }
-
-            def reset_conversation():
-                if "messages" in st.session_state and len(st.session_state.messages) > 0:
-                    st.session_state.pop("messages", None)
-
-            st.button(
-                "🗑️ Reset conversation", 
-                on_click=reset_conversation,
-            )
-
-            st.divider()
-
-            # Image Upload
-            if model in ["gpt-4o", "gpt-4-turbo", "gemini-1.5-flash", "gemini-1.5-pro", "claude-3-5-sonnet-20240620"]:
-                    
-                st.write(f"### **🖼️ Add an image{' or a video file' if model_type=='google' else ''}:**")
-
-                def add_image_to_messages():
-                    if st.session_state.uploaded_img or ("camera_img" in st.session_state and st.session_state.camera_img):
-                        img_type = st.session_state.uploaded_img.type if st.session_state.uploaded_img else "image/jpeg"
-                        if img_type == "video/mp4":
-                            # save the video file
-                            video_id = random.randint(100000, 999999)
-                            with open(f"video_{video_id}.mp4", "wb") as f:
-                                f.write(st.session_state.uploaded_img.read())
-                            st.session_state.messages.append(
-                                {
-                                    "role": "user", 
-                                    "content": [{
-                                        "type": "video_file",
-                                        "video_file": f"video_{video_id}.mp4",
-                                    }]
-                                }
-                            )
-                        else:
-                            raw_img = Image.open(st.session_state.uploaded_img or st.session_state.camera_img)
-                            img = get_image_base64(raw_img)
-                            st.session_state.messages.append(
-                                {
-                                    "role": "user", 
-                                    "content": [{
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:{img_type};base64,{img}"}
-                                    }]
-                                }
-                            )
-
-                cols_img = st.columns(2)
-
-                with cols_img[0]:
-                    with st.popover("📁 Upload"):
-                        st.file_uploader(
-                            f"Upload an image{' or a video' if model_type == 'google' else ''}:", 
-                            type=["png", "jpg", "jpeg"] + (["mp4"] if model_type == "google" else []), 
-                            accept_multiple_files=False,
-                            key="uploaded_img",
-                            on_change=add_image_to_messages,
-                        )
-
-                with cols_img[1]:                    
-                    with st.popover("📸 Camera"):
-                        activate_camera = st.checkbox("Activate camera")
-                        if activate_camera:
-                            st.camera_input(
-                                "Take a picture", 
-                                key="camera_img",
-                                on_change=add_image_to_messages,
-                            )
-
-            # Audio Upload
-            st.write("#")
-            st.write(f"### **🎤 Add an audio{' (Speech To Text)' if model_type == 'openai' else ''}:**")
-
-            audio_prompt = None
-            audio_file_added = False
-            if "prev_speech_hash" not in st.session_state:
-                st.session_state.prev_speech_hash = None
-
-            speech_input = audio_recorder("Press to talk:", icon_size="3x", neutral_color="#6ca395", )
-            if speech_input and st.session_state.prev_speech_hash != hash(speech_input):
-                st.session_state.prev_speech_hash = hash(speech_input)
-                if model_type != "google":
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1", 
-                        file=("audio.wav", speech_input),
-                    )
-
-                    audio_prompt = transcript.text
-
-                elif model_type == "google":
-                    # save the audio file
-                    audio_id = random.randint(100000, 999999)
-                    with open(f"audio_{audio_id}.wav", "wb") as f:
-                        f.write(speech_input)
-
-                    st.session_state.messages.append(
-                        {
-                            "role": "user", 
-                            "content": [{
-                                "type": "audio_file",
-                                "audio_file": f"audio_{audio_id}.wav",
-                            }]
-                        }
-                    )
-
-                    audio_file_added = True
-
-            st.divider()
-            st.video("https://www.youtube.com/watch?v=7i9j8M_zidA")
-            st.write("📋[Medium Blog: OpenAI GPT-4o](https://medium.com/@enricdomingo/code-the-omnichat-app-integrating-gpt-4o-your-python-chatgpt-d399b90d178e)")
-            st.video("https://www.youtube.com/watch?v=1IQmWVFNQEs")
-            st.write("📋[Medium Blog: Google Gemini](https://medium.com/@enricdomingo/how-i-add-gemini-1-5-pro-api-to-my-app-chat-with-videos-images-and-audios-f42171606143)")
-            st.video("https://www.youtube.com/watch?v=kXIOazjgV-8")
-            st.write("📋[Medium Blog: Anthropic Claude 3.5](https://medium.com/p/7ec4623e2dac)")
-
-
-
-        # Chat input
-        if prompt := st.chat_input("Hi! Ask me anything...") or audio_prompt or audio_file_added:
-            if not audio_file_added:
-                st.session_state.messages.append(
-                    {
-                        "role": "user", 
-                        "content": [{
-                            "type": "text",
-                            "text": prompt or audio_prompt,
-                        }]
+            if st.button("Thêm"):
+                if new_name:
+                    interests_list = [interest.strip() for interest in new_interests.split("\n") if interest.strip()]
+                    new_member = {
+                        "name": new_name,
+                        "interests": interests_list,
+                        "dob": str(new_dob) if new_dob else "",
+                        "notes": new_notes
                     }
+                    st.session_state.family_data["members"].append(new_member)
+                    save_family_data(st.session_state.family_data)
+                    st.success(f"Đã thêm thành viên: {new_name}")
+                    st.experimental_rerun()
+                else:
+                    st.error("Vui lòng nhập tên thành viên")
+        
+        # Chỉnh sửa thành viên
+        if st.session_state.current_member:
+            with st.expander("✏️ Chỉnh sửa thông tin"):
+                member = st.session_state.current_member
+                edit_interests = st.text_area(
+                    "Sở thích (mỗi sở thích một dòng)", 
+                    value="\n".join(member["interests"]) if "interests" in member else ""
                 )
+                edit_notes = st.text_area("Ghi chú", value=member.get("notes", ""))
                 
-                # Display the new messages
+                if st.button("Cập nhật"):
+                    for m in st.session_state.family_data["members"]:
+                        if m["name"] == member["name"]:
+                            m["interests"] = [interest.strip() for interest in edit_interests.split("\n") if interest.strip()]
+                            m["notes"] = edit_notes
+                            st.session_state.current_member = m
+                            break
+                    
+                    save_family_data(st.session_state.family_data)
+                    st.success("Đã cập nhật thông tin")
+                    st.experimental_rerun()
+                
+                if st.button("Xóa thành viên", type="primary", use_container_width=True):
+                    st.session_state.family_data["members"] = [
+                        m for m in st.session_state.family_data["members"] 
+                        if m["name"] != member["name"]
+                    ]
+                    
+                    save_family_data(st.session_state.family_data)
+                    st.session_state.current_member = None
+                    st.success(f"Đã xóa thành viên: {member['name']}")
+                    st.experimental_rerun()
+        
+        st.divider()
+        
+        # Reset cuộc trò chuyện
+        def reset_conversation():
+            if "messages" in st.session_state:
+                st.session_state.messages = []
+        
+        st.button("🗑️ Xóa cuộc hội thoại", on_click=reset_conversation)
+
+    # --- Kiểm tra API Key ---
+    if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
+        st.warning("⬅️ Vui lòng nhập OpenAI API Key để tiếp tục...")
+        st.info("Bạn cần có API key của OpenAI để sử dụng ứng dụng này. Đăng ký tại https://platform.openai.com")
+        return
+
+    # --- Hiển thị tin nhắn trước đó ---
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+    # --- Hiển thị thông tin thành viên hiện tại ---
+    if st.session_state.current_member:
+        member = st.session_state.current_member
+        with st.expander(f"ℹ️ Thông tin của {member['name']}", expanded=False):
+            st.write(f"**Sở thích:** {', '.join(member['interests']) if 'interests' in member else 'Chưa có thông tin'}")
+            if member.get("dob"):
+                st.write(f"**Ngày sinh:** {member['dob']}")
+            if member.get("notes"):
+                st.write(f"**Ghi chú:** {member['notes']}")
+    
+    # --- Hiển thị gợi ý câu hỏi ---
+    if st.session_state.current_member:
+        suggestions = generate_question_suggestions(st.session_state.current_member)
+        cols = st.columns(len(suggestions))
+        
+        for i, suggestion in enumerate(suggestions):
+            if cols[i].button(suggestion, key=f"suggestion_{i}", use_container_width=True):
+                # Thêm câu hỏi được chọn vào tin nhắn
+                st.session_state.messages.append({"role": "user", "content": suggestion})
+                
+                # Hiển thị tin nhắn người dùng
                 with st.chat_message("user"):
-                    st.markdown(prompt)
+                    st.write(suggestion)
+                
+                # Hiển thị phản hồi của AI
+                with st.chat_message("assistant"):
+                    st.write_stream(stream_llm_response(
+                        api_key=openai_api_key,
+                        member=st.session_state.current_member
+                    ))
+                
+                # Buộc trang làm mới để hiển thị đúng
+                st.experimental_rerun()
 
-            else:
-                # Display the audio file
+    # --- Chức năng ghi âm ---
+    st.divider()
+    st.write("🎤 **Nói chuyện với trợ lý:**")
+    speech_input = audio_recorder("Nhấn để nói", icon_size="2x", neutral_color="#6ca395")
+
+    audio_prompt = None    
+    if speech_input:
+        if "prev_speech_hash" not in st.session_state:
+            st.session_state.prev_speech_hash = None
+            
+        if st.session_state.prev_speech_hash != hash(speech_input):
+            st.session_state.prev_speech_hash = hash(speech_input)
+            
+            # Sử dụng OpenAI Whisper để chuyển giọng nói thành văn bản
+            client = OpenAI(api_key=openai_api_key)
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=("audio.wav", speech_input),
+            )
+            
+            audio_prompt = transcript.text
+            
+            if audio_prompt:
+                # Thêm tin nhắn vào lịch sử
+                st.session_state.messages.append({"role": "user", "content": audio_prompt})
+                
+                # Hiển thị tin nhắn người dùng
                 with st.chat_message("user"):
-                    st.audio(f"audio_{audio_id}.wav")
+                    st.write(audio_prompt)
+                
+                # Hiển thị phản hồi của AI
+                with st.chat_message("assistant"):
+                    st.write_stream(stream_llm_response(
+                        api_key=openai_api_key,
+                        member=st.session_state.current_member
+                    ))
+                
+                st.experimental_rerun()
 
-            with st.chat_message("assistant"):
-                model2key = {
-                    "openai": openai_api_key,
-                    "google": google_api_key,
-                    "anthropic": anthropic_api_key,
-                }
-                st.write_stream(
-                    stream_llm_response(
-                        model_params=model_params, 
-                        model_type=model_type, 
-                        api_key=model2key[model_type]
-                    )
-                )
-
-            # --- Added Audio Response (optional) ---
-            if audio_response:
-                response =  client.audio.speech.create(
-                    model=tts_model,
-                    voice=tts_voice,
-                    input=st.session_state.messages[-1]["content"][0]["text"],
-                )
-                audio_base64 = base64.b64encode(response.content).decode('utf-8')
-                audio_html = f"""
-                <audio controls autoplay>
-                    <source src="data:audio/wav;base64,{audio_base64}" type="audio/mp3">
-                </audio>
-                """
-                st.html(audio_html)
-
-
+    # --- Chat input ---
+    if prompt := st.chat_input("Xin chào! Tôi có thể giúp gì cho bạn?"):
+        # Thêm tin nhắn vào lịch sử
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Hiển thị tin nhắn người dùng
+        with st.chat_message("user"):
+            st.write(prompt)
+        
+        # Hiển thị phản hồi của AI
+        with st.chat_message("assistant"):
+            st.write_stream(stream_llm_response(
+                api_key=openai_api_key,
+                member=st.session_state.current_member
+            ))
 
 if __name__=="__main__":
     main()
