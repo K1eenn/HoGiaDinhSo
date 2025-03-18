@@ -23,7 +23,21 @@ def save_family_data(data):
 def load_family_data():
     try:
         with open("family_data.json", "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            # Chuyển đổi members thành dictionary nếu nó là list
+            if isinstance(data["members"], list):
+                members_dict = {}
+                for i, member in enumerate(data["members"]):
+                    members_dict[str(i+1)] = member
+                data["members"] = members_dict
+            elif "members" not in data:
+                data["members"] = {}
+            # Đảm bảo các khóa khác tồn tại
+            if "events" not in data:
+                data["events"] = []
+            if "notes" not in data:
+                data["notes"] = []
+            return data
     except (FileNotFoundError, json.JSONDecodeError):
         # Trả về cấu trúc dữ liệu mẫu nếu file không tồn tại hoặc trống
         return {
@@ -159,6 +173,10 @@ def main():
                         # Tạo ID mới cho thành viên
                         new_id = str(len(family_data["members"]) + 1)
                         
+                        # Đảm bảo members là dictionary
+                        if not isinstance(family_data["members"], dict):
+                            family_data["members"] = {}
+                            
                         # Thêm thành viên mới
                         family_data["members"][new_id] = {
                             "name": new_name,
