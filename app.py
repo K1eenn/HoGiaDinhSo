@@ -27,13 +27,26 @@ def load_data(file_path):
     return {}
 
 def save_data(file_path, data):
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+    try:
+        # Đảm bảo thư mục tồn tại
+        os.makedirs(os.path.dirname(file_path) or '.', exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Lỗi khi lưu dữ liệu vào {file_path}: {e}")
 
 # Tải dữ liệu ban đầu
 family_data = load_data(FAMILY_DATA_FILE)
 events_data = load_data(EVENTS_DATA_FILE)
 notes_data = load_data(NOTES_DATA_FILE)
+
+# Kiểm tra cấu trúc dữ liệu - nếu trống thì tạo cấu trúc mặc định
+if not isinstance(family_data, dict):
+    family_data = {}
+if not isinstance(events_data, dict):
+    events_data = {}
+if not isinstance(notes_data, dict):
+    notes_data = {}
 
 # Hàm chuyển đổi hình ảnh sang base64
 def get_image_base64(image_raw):
@@ -236,10 +249,14 @@ def main():
                     save_data(FAMILY_DATA_FILE, family_data)
                     st.success(f"Đã thêm {member_name} vào gia đình!")
         
-        # Xem và chỉnh sửa thành viên gia đình
+                    # Xem và chỉnh sửa thành viên gia đình
         with st.expander("👥 Thành viên gia đình"):
             for member_id, member in family_data.items():
-                st.write(f"**{member['name']}** ({member['age']})")
+                # Sử dụng get() để xử lý trường hợp không có khóa name hoặc age
+                member_name = member.get("name", "Không tên")
+                member_age = member.get("age", "")
+                
+                st.write(f"**{member_name}** ({member_age})")
                 
                 # Hiển thị sở thích
                 if "preferences" in member:
@@ -248,7 +265,7 @@ def main():
                             st.write(f"- {pref_key.capitalize()}: {pref_value}")
                 
                 # Nút chỉnh sửa cho mỗi thành viên
-                if st.button(f"Chỉnh sửa {member['name']}", key=f"edit_{member_id}"):
+                if st.button(f"Chỉnh sửa {member_name}", key=f"edit_{member_id}"):
                     st.session_state.editing_member = member_id
         
         # Form chỉnh sửa thành viên (xuất hiện khi đang chỉnh sửa)
@@ -324,24 +341,28 @@ def main():
         
         # Xem sự kiện sắp tới
         with st.expander("📆 Sự kiện sắp tới"):
-            # Sắp xếp sự kiện theo ngày
-            sorted_events = sorted(
-                events_data.items(),
-                key=lambda x: (x[1]["date"], x[1]["time"])
-            )
+                            # Sắp xếp sự kiện theo ngày (với xử lý lỗi)
+            try:
+                sorted_events = sorted(
+                    events_data.items(),
+                    key=lambda x: (x[1].get("date", ""), x[1].get("time", ""))
+                )
+            except Exception as e:
+                st.error(f"Lỗi khi sắp xếp sự kiện: {e}")
+                sorted_events = []
             
             if not sorted_events:
                 st.write("Không có sự kiện nào sắp tới")
             
             for event_id, event in sorted_events:
-                st.write(f"**{event['title']}**")
-                st.write(f"📅 {event['date']} | ⏰ {event['time']}")
+                st.write(f"**{event.get('title', 'Sự kiện không tiêu đề')}**")
+                st.write(f"📅 {event.get('date', 'Chưa đặt ngày')} | ⏰ {event.get('time', 'Chưa đặt giờ')}")
                 
-                if event['description']:
-                    st.write(event['description'])
+                if event.get('description'):
+                    st.write(event.get('description', ''))
                 
-                if event['participants']:
-                    st.write(f"👥 {', '.join(event['participants'])}")
+                if event.get('participants'):
+                    st.write(f"👥 {', '.join(event.get('participants', []))}")
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -409,19 +430,23 @@ def main():
         
         # Xem ghi chú
         with st.expander("📝 Ghi chú"):
-            # Sắp xếp ghi chú theo ngày tạo
-            sorted_notes = sorted(
-                notes_data.items(),
-                key=lambda x: x[1]["created_on"],
-                reverse=True
-            )
+            # Sắp xếp ghi chú theo ngày tạo (với xử lý lỗi)
+            try:
+                sorted_notes = sorted(
+                    notes_data.items(),
+                    key=lambda x: x[1].get("created_on", ""),
+                    reverse=True
+                )
+            except Exception as e:
+                st.error(f"Lỗi khi sắp xếp ghi chú: {e}")
+                sorted_notes = []
             
             if not sorted_notes:
                 st.write("Không có ghi chú nào")
             
             for note_id, note in sorted_notes:
-                st.write(f"**{note['title']}**")
-                st.write(note['content'])
+                st.write(f"**{note.get('title', 'Ghi chú không tiêu đề')}**")
+                st.write(note.get('content', ''))
                 
                 if note.get('tags'):
                     tags = ', '.join([f"#{tag}" for tag in note['tags']])
