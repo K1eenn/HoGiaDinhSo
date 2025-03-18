@@ -109,11 +109,41 @@ def stream_llm_response(api_key, system_prompt=""):
     
     # Tạo tin nhắn với system prompt
     messages = [{"role": "system", "content": system_prompt}]
+    
+    # Thêm tất cả tin nhắn trước đó vào cuộc trò chuyện
     for message in st.session_state.messages:
-        messages.append({
-            "role": message["role"],
-            "content": message["content"][0]["text"]
-        })
+        # Xử lý các tin nhắn hình ảnh
+        if any(content["type"] == "image_url" for content in message["content"]):
+            # Đối với tin nhắn có hình ảnh, chúng ta cần tạo tin nhắn theo định dạng của OpenAI
+            images = [content for content in message["content"] if content["type"] == "image_url"]
+            texts = [content for content in message["content"] if content["type"] == "text"]
+            
+            # Thêm hình ảnh và văn bản vào tin nhắn
+            message_content = []
+            for image in images:
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": image["image_url"]["url"]}
+                })
+            
+            if texts:
+                text_content = "\n".join([text["text"] for text in texts])
+                message_content.append({
+                    "type": "text",
+                    "text": text_content
+                })
+            
+            messages.append({
+                "role": message["role"],
+                "content": message_content
+            })
+        else:
+            # Đối với tin nhắn chỉ có văn bản
+            text_content = message["content"][0]["text"] if message["content"] else ""
+            messages.append({
+                "role": message["role"],
+                "content": text_content
+            })
     
     try:
         client = OpenAI(api_key=api_key)
@@ -183,14 +213,10 @@ def process_assistant_response(response):
                     cmd_end = response.index("##", cmd_start)
                     cmd = response[cmd_start:cmd_end].strip()
                     
-                    elif cmd_type == "DELETE_EVENT":
+                    if cmd_type == "DELETE_EVENT":
                         event_id = cmd.strip()
-                        logger.info(f"Lệnh xóa sự kiện được phát hiện với ID={event_id}")
-                        success, message = delete_event(event_id)
-                        if success:
-                            st.success(message)
-                        else:
-                            st.warning(message)
+                        delete_event(event_id)
+                        st.success(f"Đã xóa sự kiện!")
                     else:
                         details = json.loads(cmd)
                         if isinstance(details, dict):
@@ -264,29 +290,9 @@ def update_event(details):
         save_data(EVENTS_DATA_FILE, events_data)
 
 def delete_event(event_id):
-    """Xóa một sự kiện dựa trên ID"""
-    try:
-        logger.info(f"Thực hiện xóa sự kiện có ID: {event_id}")
-        
-        # Kiểm tra nếu event_id là chuỗi số, thử chuyển đổi
-        if event_id.isdigit():
-            event_id = str(event_id)  # Đảm bảo ID là chuỗi
-        
-        # Log danh sách ID hiện có để debug
-        logger.info(f"Các ID sự kiện hiện có: {list(events_data.keys())}")
-        
-        if event_id in events_data:
-            event_title = events_data[event_id].get('title', 'Không tiêu đề')
-            del events_data[event_id]
-            save_data(EVENTS_DATA_FILE, events_data)
-            logger.info(f"Đã xóa sự kiện ID={event_id}, tiêu đề: {event_title}")
-            return True, f"Đã xóa sự kiện: {event_title}"
-        else:
-            logger.warning(f"Không tìm thấy sự kiện có ID={event_id}")
-            return False, f"Không tìm thấy sự kiện có ID={event_id}"
-    except Exception as e:
-        logger.error(f"Lỗi khi xóa sự kiện: {e}")
-        return False, f"Lỗi khi xóa sự kiện: {e}"
+    if event_id in events_data:
+        del events_data[event_id]
+        save_data(EVENTS_DATA_FILE, events_data)
 
 # Các hàm quản lý ghi chú
 def add_note(details):
@@ -482,14 +488,10 @@ def main():
                 with col1:
                     if st.button(f"Chỉnh sửa", key=f"edit_event_{event_id}"):
                         st.session_state.editing_event = event_id
-                # Nút xóa sự kiện
                 with col2:
                     if st.button(f"Xóa", key=f"delete_event_{event_id}"):
-                        success, message = delete_event(event_id)
-                        if success:
-                            st.success(message)
-                        else:
-                            st.warning(message)
+                        delete_event(event_id)
+                        st.success(f"Đã xóa sự kiện!")
                         st.rerun()
                 st.divider()
         
@@ -629,26 +631,59 @@ def main():
                     elif content["type"] == "image_url":      
                         st.image(content["image_url"]["url"])
 
-        # Tạo danh sách sự kiện để hiển thị trong system prompt
-        events_list = ""
-        for event_id, event in events_data.items():
-            title = event.get('title', 'Không tiêu đề')
-            date = event.get('date', '')
-            time = event.get('time', '')
-            events_list += f"- ID: {event_id}, Tiêu đề: {title}, Ngày: {date}, Giờ: {time}\n"
-        
-        if not events_list:
-            events_list = "Không có sự kiện nào.\n"
-        
+        # Thêm chức năng hình ảnh
+        with st.sidebar:
+            st.divider()
+            st.write("## 🖼️ Hình ảnh")
+            st.write("Thêm hình ảnh để hỏi trợ lý về món ăn, hoạt động gia đình...")
+
+            def add_image_to_messages():
+                if st.session_state.uploaded_img or ("camera_img" in st.session_state and st.session_state.camera_img):
+                    img_type = st.session_state.uploaded_img.type if st.session_state.uploaded_img else "image/jpeg"
+                    raw_img = Image.open(st.session_state.uploaded_img or st.session_state.camera_img)
+                    img = get_image_base64(raw_img)
+                    st.session_state.messages.append(
+                        {
+                            "role": "user", 
+                            "content": [{
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{img_type};base64,{img}"}
+                            }]
+                        }
+                    )
+                    st.rerun()
+            
+            cols_img = st.columns(2)
+            with cols_img[0]:
+                with st.popover("📁 Tải lên"):
+                    st.file_uploader(
+                        "Tải lên hình ảnh:", 
+                        type=["png", "jpg", "jpeg"],
+                        accept_multiple_files=False,
+                        key="uploaded_img",
+                        on_change=add_image_to_messages,
+                    )
+
+            with cols_img[1]:                    
+                with st.popover("📸 Camera"):
+                    activate_camera = st.checkbox("Bật camera")
+                    if activate_camera:
+                        st.camera_input(
+                            "Chụp ảnh", 
+                            key="camera_img",
+                            on_change=add_image_to_messages,
+                        )
+
         # System prompt cho trợ lý
         system_prompt = f"""
         Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
-        sở thích của họ, các sự kiện, và ghi chú. Khi người dùng yêu cầu, bạn có thể thực hiện các hành động sau:
+        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn có thể thực hiện các hành động sau:
         
         1. Thêm thông tin về thành viên gia đình (tên, tuổi, sở thích)
         2. Cập nhật sở thích của thành viên gia đình
         3. Thêm, cập nhật, hoặc xóa sự kiện
         4. Thêm ghi chú
+        5. Phân tích hình ảnh người dùng đưa ra (món ăn, hoạt động gia đình, v.v.)
         
         QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
         
@@ -657,21 +692,22 @@ def main():
         - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
         - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
         - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
-        
-        QUAN TRỌNG VỀ XÓA SỰ KIỆN: 
-        - Khi người dùng yêu cầu xóa một sự kiện, bạn PHẢI sử dụng lệnh ##DELETE_EVENT:id_sự_kiện##
-        - Trong đó id_sự_kiện phải là ID chính xác của sự kiện cần xóa, không được thêm bất kỳ ký tự nào khác
-        - Ví dụ: ##DELETE_EVENT:1## hoặc ##DELETE_EVENT:2##
-        
-        Danh sách sự kiện hiện tại:
-        {events_list}
+        - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
         
         CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
         
         QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn.
         
+        Đối với hình ảnh:
+        - Nếu người dùng gửi hình ảnh món ăn, hãy mô tả món ăn, và đề xuất cách nấu hoặc thông tin dinh dưỡng nếu phù hợp
+        - Nếu là hình ảnh hoạt động gia đình, hãy mô tả hoạt động và đề xuất cách ghi nhớ khoảnh khắc đó
+        - Với bất kỳ hình ảnh nào, hãy giúp người dùng liên kết nó với thành viên gia đình hoặc sự kiện nếu phù hợp
+        
         Thông tin hiện tại về gia đình:
         {json.dumps(family_data, ensure_ascii=False, indent=2)}
+        
+        Sự kiện sắp tới:
+        {json.dumps(events_data, ensure_ascii=False, indent=2)}
         
         Ghi chú:
         {json.dumps(notes_data, ensure_ascii=False, indent=2)}
