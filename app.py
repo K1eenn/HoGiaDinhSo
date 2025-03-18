@@ -270,7 +270,7 @@ def get_image_base64(image_raw):
     img_byte = buffered.getvalue()
     return base64.b64encode(img_byte).decode('utf-8')
 
-# Function để query và stream phản hồi từ GPT-4o-mini
+    # Function để query và stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key=None):
     response_message = ""
     
@@ -285,8 +285,10 @@ def stream_llm_response(api_key=None):
         
         {family_context}
         
-        Người dùng có thể thêm sự kiện mới bằng cách chat với bạn. Khi họ nhắc đến việc thêm sự kiện, tạo lịch,
-        đặt hẹn, hay ghi nhớ một điều gì đó vào một ngày cụ thể, hãy hiểu rằng họ muốn thêm sự kiện mới vào lịch gia đình.
+        Người dùng có thể quản lý sự kiện bằng cách chat với bạn:
+        - Thêm sự kiện mới: "thêm sự kiện X vào ngày Y"
+        - Xóa sự kiện: "xóa sự kiện X"
+        - Chỉnh sửa sự kiện: "sửa sự kiện X sang ngày Y"
         
         Hãy sử dụng thông tin này để cá nhân hóa câu trả lời của bạn. Khi người dùng hỏi về một thành viên cụ thể, 
         hãy đưa ra gợi ý phù hợp với sở thích và hạn chế của họ. Nếu họ hỏi về kế hoạch, hãy nhắc họ về các sự kiện sắp tới."""
@@ -295,7 +297,7 @@ def stream_llm_response(api_key=None):
     # Thêm tin nhắn hệ thống vào đầu danh sách
     messages = [system_message] + st.session_state.messages
     
-    # Trước khi gọi AI, kiểm tra xem tin nhắn cuối cùng có phải là thêm sự kiện không
+    # Trước khi gọi AI, kiểm tra xem tin nhắn cuối cùng có phải là thao tác với sự kiện không
     if len(st.session_state.messages) > 0:
         last_user_message = None
         for msg in reversed(st.session_state.messages):
@@ -304,12 +306,19 @@ def stream_llm_response(api_key=None):
                 break
         
         if last_user_message:
-            # Phân tích tin nhắn xem có phải là thêm sự kiện không
+            # Phân tích tin nhắn xem có phải là thao tác với sự kiện không
             family_data = load_family_data()
             event_info = parse_event_from_message(last_user_message)
+            
+            confirmation = None
             if event_info["event_detected"]:
-                # Thêm sự kiện mới
-                confirmation = add_event_from_chat(event_info, family_data)
+                if event_info["intent"] == "add":
+                    confirmation = add_event_from_chat(event_info, family_data)
+                elif event_info["intent"] == "delete":
+                    confirmation = delete_event_from_chat(event_info, family_data)
+                elif event_info["intent"] == "edit":
+                    confirmation = edit_event_from_chat(event_info, family_data)
+                    
                 if confirmation:
                     # Thêm thông báo xác nhận vào đầu tin nhắn phản hồi
                     response_message = confirmation + "\n\n"
@@ -662,7 +671,7 @@ def main():
         with col1:
             # Nhập tin nhắn
             if prompt := st.chat_input("Hỏi trợ lý gia đình..."):
-                # Kiểm tra xem có phải là thêm sự kiện không trước khi thêm vào tin nhắn
+                # Kiểm tra xem có phải là thao tác với sự kiện không
                 event_info = parse_event_from_message(prompt)
                 
                 # Thêm tin nhắn vào lịch sử
@@ -682,9 +691,14 @@ def main():
                 
                 # Phản hồi từ AI
                 with st.chat_message("assistant"):
-                    # Nếu là lệnh thêm sự kiện, thông báo đang xử lý
+                    # Nếu là lệnh thao tác với sự kiện, thông báo đang xử lý
                     if event_info["event_detected"]:
-                        st.info("Đang phân tích và thêm sự kiện...")
+                        if event_info["intent"] == "add":
+                            st.info("Đang phân tích và thêm sự kiện...")
+                        elif event_info["intent"] == "delete":
+                            st.info("Đang xóa sự kiện...")
+                        elif event_info["intent"] == "edit":
+                            st.info("Đang cập nhật sự kiện...")
                     
                     st.write_stream(stream_llm_response(api_key=openai_api_key))
 
