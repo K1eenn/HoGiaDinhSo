@@ -316,6 +316,28 @@ def main():
 
     # --- Tiêu đề ---
     st.html("""<h1 style="text-align: center; color: #6ca395;">👨‍👩‍👧‍👦 <i>Trợ lý Gia đình</i> 💬</h1>""")
+    
+    # CSS tùy chỉnh để điều chỉnh kích thước và vị trí của nút micro
+    st.markdown("""
+    <style>
+    /* Căn chỉnh nút micro cho đẹp hơn */
+    .stAudio > div {
+        display: flex;
+        justify-content: center;
+    }
+    
+    /* Giảm khoảng cách trên dưới của nút micro */
+    .stAudio {
+        margin-top: -10px;
+        margin-bottom: -15px;
+    }
+    
+    /* Căn chỉnh khu vực chat input */
+    .stChatInputContainer {
+        padding-right: 5px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # --- Thanh bên ---
     with st.sidebar:
@@ -721,21 +743,35 @@ def main():
         if "prev_speech_hash" not in st.session_state:
             st.session_state.prev_speech_hash = None
 
-        # Ghi âm
-        st.write("🎤 Bạn có thể nói:")
-        speech_input = audio_recorder("Nhấn để nói", icon_size="2x", neutral_color="#6ca395")
+        # Tạo layout cho việc đặt chat input và nút mic cạnh nhau
+        chat_col1, chat_col2 = st.columns([6, 1])
+        
+        with chat_col1:
+            # Chat input
+            prompt = st.chat_input("Xin chào! Tôi có thể giúp gì cho gia đình bạn?")
+        
+        with chat_col2:
+            # Ghi âm - Chỉ hiển thị biểu tượng mic
+            speech_input = audio_recorder(key="speech_recorder", 
+                                        icon_size="2x", 
+                                        neutral_color="#6ca395",
+                                        recording_color="#e45252",
+                                        text="",  # Bỏ văn bản đi
+                                        stop_prompt="")  # Bỏ văn bản khi dừng
+
+        # Xử lý dữ liệu âm thanh
         if speech_input and st.session_state.prev_speech_hash != hash(speech_input):
             st.session_state.prev_speech_hash = hash(speech_input)
-            
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=("audio.wav", speech_input),
-            )
+            with st.spinner("Đang xử lý giọng nói..."):
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=("audio.wav", speech_input),
+                )
+                audio_prompt = transcript.text
+                st.info(f"Bạn vừa nói: \"{audio_prompt}\"")
 
-            audio_prompt = transcript.text
-
-        # Chat input
-        if prompt := st.chat_input("Xin chào! Tôi có thể giúp gì cho gia đình bạn?") or audio_prompt:
+        # Xử lý input
+        if prompt or audio_prompt:
             st.session_state.messages.append(
                 {
                     "role": "user", 
