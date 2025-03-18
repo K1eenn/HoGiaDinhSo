@@ -101,63 +101,33 @@ def get_family_context():
     
     return context
 
-# Hàm để phân tích tin nhắn và thêm/sửa/xóa sự kiện từ trò chuyện
+# Hàm để phân tích tin nhắn và thêm sự kiện từ trò chuyện
 def parse_event_from_message(message):
     """
     Phân tích tin nhắn từ người dùng để trích xuất thông tin sự kiện nếu có
-    Trả về dict với các trường event_action, title, date, description, search_term
+    Trả về dict với các trường event_detected, title, date, description
     """
     result = {
-        "event_action": "none",  # none, add, edit, delete
+        "event_detected": False,
         "title": "",
         "date": None,
-        "description": "",
-        "search_term": ""  # Dùng để tìm kiếm sự kiện cần sửa/xóa
+        "description": ""
     }
     
     # Các pattern để nhận diện khi người dùng muốn thêm sự kiện
-    add_patterns = [
+    event_patterns = [
         "thêm sự kiện", "tạo sự kiện", "lưu sự kiện", "ghi nhớ sự kiện", 
         "đặt lịch", "tạo lịch", "nhắc nhở", "ghi nhớ", "thêm lịch",
         "hẹn", "hẹn lịch", "đặt hẹn"
     ]
     
-    # Các pattern để nhận diện khi người dùng muốn sửa sự kiện
-    edit_patterns = [
-        "sửa sự kiện", "chỉnh sự kiện", "cập nhật sự kiện", "thay đổi sự kiện",
-        "sửa lịch", "cập nhật lịch", "chỉnh lịch", "thay đổi lịch", 
-        "sửa ngày", "đổi ngày", "thay đổi ngày"
-    ]
-    
-    # Các pattern để nhận diện khi người dùng muốn xóa sự kiện
-    delete_patterns = [
-        "xóa sự kiện", "hủy sự kiện", "loại bỏ sự kiện", "bỏ sự kiện",
-        "xóa lịch", "hủy lịch", "loại bỏ lịch", "bỏ lịch"
-    ]
-    
     message = message.lower()
     
     # Kiểm tra xem tin nhắn có chứa pattern nào không
-    if any(pattern in message for pattern in add_patterns):
-        result["event_action"] = "add"
-    elif any(pattern in message for pattern in edit_patterns):
-        result["event_action"] = "edit"
-    elif any(pattern in message for pattern in delete_patterns):
-        result["event_action"] = "delete"
-    else:
+    if not any(pattern in message for pattern in event_patterns):
         return result
     
-    # Nếu là sửa hoặc xóa, cần tìm từ khóa để xác định sự kiện cần thao tác
-    if result["event_action"] in ["edit", "delete"]:
-        # Tìm kiếm các từ khóa sau các pattern
-        search_patterns = ["sự kiện", "lịch", "ngày"]
-        for pattern in (edit_patterns if result["event_action"] == "edit" else delete_patterns):
-            if pattern in message:
-                after_pattern = message.split(pattern, 1)[1].strip()
-                # Lấy cụm từ sau pattern
-                potential_search = after_pattern.split(".")[0].split(",")[0].split("\n")[0]
-                result["search_term"] = potential_search.strip()
-                break
+    result["event_detected"] = True
     
     # Trích xuất tiêu đề sự kiện - tìm tiêu đề ở sau các từ khóa hoặc từ đầu câu
     title_patterns = ["tên là ", "tiêu đề là ", "tên sự kiện là ", "với tên ", " là ", ": "]
@@ -171,10 +141,10 @@ def parse_event_from_message(message):
                 if len(potential_title) > len(title):
                     title = potential_title
     
-    # Nếu không tìm thấy tiêu đề và đây là thêm mới, thử lấy phần đầu tin nhắn
-    if not title and result["event_action"] == "add":
+    # Nếu không tìm thấy tiêu đề, thử lấy phần đầu tin nhắn
+    if not title:
         first_sentence = message.split(".")[0].split("!")[0].split("?")[0]
-        for pattern in add_patterns:
+        for pattern in event_patterns:
             if pattern in first_sentence:
                 title = first_sentence.split(pattern, 1)[1].strip()
                 break
@@ -226,8 +196,8 @@ def parse_event_from_message(message):
         except Exception:
             pass
     
-    # Mặc định là hôm nay nếu không tìm thấy ngày và đây là thêm mới
-    if not result["date"] and result["event_action"] == "add":
+    # Mặc định là hôm nay nếu không tìm thấy ngày
+    if not result["date"]:
         result["date"] = today
     
     # Trích xuất mô tả - lấy phần còn lại của tin nhắn sau khi đã xác định tiêu đề và ngày
@@ -237,7 +207,7 @@ def parse_event_from_message(message):
         description = description.replace(result["title"], "", 1)
     
     # Loại bỏ các từ khóa sự kiện
-    for pattern in add_patterns + edit_patterns + delete_patterns:
+    for pattern in event_patterns:
         description = description.replace(pattern, "")
     
     # Loại bỏ các từ khóa ngày
@@ -254,124 +224,44 @@ def parse_event_from_message(message):
     
     return result
 
-# Hàm tìm kiếm sự kiện theo từ khóa
-def find_event_by_keyword(family_data, keyword):
+# Hàm để thêm sự kiện từ thông tin đã phân tích
+def add_event_from_chat(event_info, family_data):
     """
-    Tìm kiếm sự kiện dựa trên từ khóa, có thể là một phần của tiêu đề
-    hoặc ngày tháng. Trả về index và sự kiện tìm thấy
-    """
-    if not keyword or not family_data["events"]:
-        return -1, None
-    
-    keyword = keyword.lower().strip()
-    
-    # Tìm theo tiêu đề trước
-    for i, event in enumerate(family_data["events"]):
-        if keyword in event["title"].lower():
-            return i, event
-    
-    # Tìm theo mô tả
-    for i, event in enumerate(family_data["events"]):
-        if keyword in event["description"].lower():
-            return i, event
-            
-    # Tìm theo ngày
-    for i, event in enumerate(family_data["events"]):
-        if keyword in event["date"]:
-            return i, event
-    
-    return -1, None
-
-# Hàm để xử lý sự kiện từ thông tin đã phân tích
-def process_event_from_chat(event_info, family_data):
-    """
-    Xử lý sự kiện dựa trên action (thêm/sửa/xóa)
+    Thêm sự kiện mới vào dữ liệu gia đình từ thông tin đã phân tích
     Trả về thông báo xác nhận
     """
-    if event_info["event_action"] == "none":
+    if not event_info["event_detected"] or not event_info["title"]:
         return None
     
+    # Tạo tiêu đề mặc định nếu không phân tích được
+    title = event_info["title"]
+    if not title.strip():
+        title = "Sự kiện mới"
+    
+    # Đảm bảo ngày được định dạng đúng
+    if event_info["date"]:
+        date_str = event_info["date"].strftime("%Y-%m-%d")
+    else:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # Chuẩn bị mô tả
+    description = event_info["description"]
+    if not description.strip():
+        description = "Không có mô tả"
+    
     # Thêm sự kiện mới
-    if event_info["event_action"] == "add":
-        # Tạo tiêu đề mặc định nếu không phân tích được
-        title = event_info["title"]
-        if not title.strip():
-            title = "Sự kiện mới"
-        
-        # Đảm bảo ngày được định dạng đúng
-        if event_info["date"]:
-            date_str = event_info["date"].strftime("%Y-%m-%d")
-        else:
-            date_str = datetime.now().strftime("%Y-%m-%d")
-        
-        # Chuẩn bị mô tả
-        description = event_info["description"]
-        if not description.strip():
-            description = "Không có mô tả"
-        
-        # Thêm sự kiện mới
-        family_data["events"].append({
-            "title": title,
-            "date": date_str,
-            "description": description
-        })
-        
-        # Lưu dữ liệu
-        save_family_data(family_data)
-        
-        # Tạo thông báo xác nhận
-        confirmation = f"✅ Đã thêm sự kiện: {title} vào ngày {date_str}."
-        return confirmation
+    family_data["events"].append({
+        "title": title,
+        "date": date_str,
+        "description": description
+    })
     
-    # Xử lý sửa/xóa sự kiện
-    elif event_info["event_action"] in ["edit", "delete"]:
-        # Tìm sự kiện cần sửa/xóa
-        event_index, found_event = find_event_by_keyword(family_data, event_info["search_term"])
-        
-        if event_index == -1:
-            return f"❌ Không tìm thấy sự kiện phù hợp với từ khóa '{event_info['search_term']}'."
-        
-        # Xóa sự kiện
-        if event_info["event_action"] == "delete":
-            title = found_event["title"]
-            date = found_event["date"]
-            family_data["events"].pop(event_index)
-            save_family_data(family_data)
-            return f"✅ Đã xóa sự kiện: {title} (ngày {date})."
-        
-        # Sửa sự kiện
-        elif event_info["event_action"] == "edit":
-            # Lưu giữ thông tin cũ để so sánh
-            old_title = found_event["title"]
-            old_date = found_event["date"]
-            
-            # Cập nhật tiêu đề nếu có
-            if event_info["title"]:
-                found_event["title"] = event_info["title"]
-            
-            # Cập nhật ngày nếu có
-            if event_info["date"]:
-                found_event["date"] = event_info["date"].strftime("%Y-%m-%d")
-            
-            # Cập nhật mô tả nếu có
-            if event_info["description"]:
-                found_event["description"] = event_info["description"]
-            
-            # Lưu dữ liệu
-            save_family_data(family_data)
-            
-            # Tạo thông báo xác nhận
-            changes = []
-            if old_title != found_event["title"]:
-                changes.append(f"tiêu đề từ '{old_title}' thành '{found_event['title']}'")
-            if old_date != found_event["date"]:
-                changes.append(f"ngày từ '{old_date}' thành '{found_event['date']}'")
-            if not changes:
-                changes.append("thông tin")
-                
-            return f"✅ Đã cập nhật {', '.join(changes)} cho sự kiện."
+    # Lưu dữ liệu
+    save_family_data(family_data)
     
-    return None
+    # Tạo thông báo xác nhận
+    confirmation = f"✅ Đã thêm sự kiện: {title} vào ngày {date_str}."
+    return confirmation
 
 # Function để chuyển file ảnh sang base64
 def get_image_base64(image_raw):
@@ -395,10 +285,8 @@ def stream_llm_response(api_key=None):
         
         {family_context}
         
-        Người dùng có thể thêm, sửa hoặc xóa sự kiện bằng cách chat với bạn:
-        - Khi họ nhắc đến việc thêm sự kiện, tạo lịch, đặt hẹn, hay ghi nhớ một điều gì đó vào một ngày cụ thể, hãy hiểu rằng họ muốn thêm sự kiện mới.
-        - Khi họ nhắc đến việc sửa, chỉnh, cập nhật hoặc thay đổi một sự kiện, hãy hiểu rằng họ muốn sửa sự kiện.
-        - Khi họ nhắc đến việc xóa, hủy hoặc bỏ một sự kiện, hãy hiểu rằng họ muốn xóa sự kiện.
+        Người dùng có thể thêm sự kiện mới bằng cách chat với bạn. Khi họ nhắc đến việc thêm sự kiện, tạo lịch,
+        đặt hẹn, hay ghi nhớ một điều gì đó vào một ngày cụ thể, hãy hiểu rằng họ muốn thêm sự kiện mới vào lịch gia đình.
         
         Hãy sử dụng thông tin này để cá nhân hóa câu trả lời của bạn. Khi người dùng hỏi về một thành viên cụ thể, 
         hãy đưa ra gợi ý phù hợp với sở thích và hạn chế của họ. Nếu họ hỏi về kế hoạch, hãy nhắc họ về các sự kiện sắp tới."""
@@ -407,7 +295,7 @@ def stream_llm_response(api_key=None):
     # Thêm tin nhắn hệ thống vào đầu danh sách
     messages = [system_message] + st.session_state.messages
     
-    # Trước khi gọi AI, kiểm tra xem tin nhắn cuối cùng có phải là yêu cầu thao tác sự kiện không
+    # Trước khi gọi AI, kiểm tra xem tin nhắn cuối cùng có phải là thêm sự kiện không
     if len(st.session_state.messages) > 0:
         last_user_message = None
         for msg in reversed(st.session_state.messages):
@@ -416,12 +304,12 @@ def stream_llm_response(api_key=None):
                 break
         
         if last_user_message:
-            # Phân tích tin nhắn xem có phải là thao tác sự kiện không
+            # Phân tích tin nhắn xem có phải là thêm sự kiện không
             family_data = load_family_data()
             event_info = parse_event_from_message(last_user_message)
-            if event_info["event_action"] != "none":
-                # Xử lý sự kiện (thêm/sửa/xóa)
-                confirmation = process_event_from_chat(event_info, family_data)
+            if event_info["event_detected"]:
+                # Thêm sự kiện mới
+                confirmation = add_event_from_chat(event_info, family_data)
                 if confirmation:
                     # Thêm thông báo xác nhận vào đầu tin nhắn phản hồi
                     response_message = confirmation + "\n\n"
@@ -583,3 +471,223 @@ def main():
                 except Exception as e:
                     st.error(f"Lỗi khi chỉnh sửa thành viên: {str(e)}")
                     st.session_state.edit_member = None
+        
+        with tab2:
+            # Quản lý các sự kiện gia đình
+            with st.expander("➕ Thêm sự kiện mới"):
+                with st.form("add_event_form"):
+                    event_title = st.text_input("Tiêu đề sự kiện:")
+                    event_date = st.date_input("Ngày:")
+                    event_description = st.text_area("Mô tả:")
+                    
+                    submit_event = st.form_submit_button("Thêm sự kiện")
+                    
+                    if submit_event and event_title:
+                        # Thêm sự kiện mới
+                        family_data["events"].append({
+                            "title": event_title,
+                            "date": event_date.strftime("%Y-%m-%d"),
+                            "description": event_description
+                        })
+                        
+                        # Lưu dữ liệu
+                        save_family_data(family_data)
+                        st.success(f"Đã thêm sự kiện {event_title}!")
+                        st.rerun()
+            
+            # Hiển thị các sự kiện sắp tới
+            if family_data["events"]:
+                st.subheader("Sự kiện sắp tới:")
+                today = datetime.now().date()
+                events = sorted(family_data["events"], key=lambda x: x["date"])
+                
+                for i, event in enumerate(events):
+                    event_date = datetime.strptime(event["date"], "%Y-%m-%d").date()
+                    days_remaining = (event_date - today).days
+                    
+                    # Hiển thị ngày còn lại
+                    status = ""
+                    if days_remaining < 0:
+                        status = "Đã qua"
+                    elif days_remaining == 0:
+                        status = "Hôm nay"
+                    else:
+                        status = f"Còn {days_remaining} ngày"
+                    
+                    st.write(f"**{event['title']}** ({event['date']}) - {status}")
+                    st.write(f"{event['description']}")
+                    
+                    # Nút xóa sự kiện
+                    if st.button(f"Xóa", key=f"delete_event_{i}"):
+                        family_data["events"].pop(i)
+                        save_family_data(family_data)
+                        st.success("Đã xóa sự kiện!")
+                        st.rerun()
+                    
+                    st.divider()
+        
+        with tab3:
+            # Quản lý ghi chú gia đình
+            with st.form("add_note_form"):
+                note_content = st.text_area("Ghi chú mới:")
+                submit_note = st.form_submit_button("Thêm ghi chú")
+                
+                if submit_note and note_content:
+                    # Thêm ghi chú mới với thời gian hiện tại
+                    family_data["notes"].append({
+                        "content": note_content,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    
+                    # Lưu dữ liệu
+                    save_family_data(family_data)
+                    st.success("Đã thêm ghi chú mới!")
+                    st.rerun()
+            
+            # Hiển thị ghi chú hiện có
+            if family_data["notes"]:
+                st.subheader("Ghi chú:")
+                for i, note in enumerate(reversed(family_data["notes"])):
+                    st.markdown(f"**{note['timestamp']}**")
+                    st.markdown(note['content'])
+                    
+                    # Nút xóa ghi chú
+                    if st.button(f"Xóa", key=f"delete_note_{i}"):
+                        family_data["notes"].pop(len(family_data["notes"]) - 1 - i)
+                        save_family_data(family_data)
+                        st.success("Đã xóa ghi chú!")
+                        st.rerun()
+                    
+                    st.divider()
+        
+        # Nút reset cuộc trò chuyện
+        st.divider()
+        def reset_conversation():
+            if "messages" in st.session_state and len(st.session_state.messages) > 0:
+                st.session_state.pop("messages", None)
+
+        st.button(
+            "🗑️ Làm mới cuộc trò chuyện", 
+            on_click=reset_conversation,
+        )
+
+    # --- Kiểm tra API Key ---
+    if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
+        st.write("#")
+        st.warning("⬅️ Vui lòng nhập OpenAI API Key để tiếp tục...")
+    else:
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        # Hiển thị tin nhắn trước đó nếu có
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                for content in message["content"]:
+                    if content["type"] == "text":
+                        st.write(content["text"])
+                    elif content["type"] == "image_url":      
+                        st.image(content["image_url"]["url"])
+
+        # Khu vực tương tác chính
+        col1, col2 = st.columns([3, 1])
+        
+        with col2:
+            st.write("### 📸 Thêm hình ảnh:")
+            
+            def add_image_to_messages():
+                if st.session_state.uploaded_img or ("camera_img" in st.session_state and st.session_state.camera_img):
+                    img_type = st.session_state.uploaded_img.type if st.session_state.uploaded_img else "image/jpeg"
+                    raw_img = Image.open(st.session_state.uploaded_img or st.session_state.camera_img)
+                    img = get_image_base64(raw_img)
+                    st.session_state.messages.append(
+                        {
+                            "role": "user", 
+                            "content": [{
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{img_type};base64,{img}"}
+                            }]
+                        }
+                    )
+            
+            cols_img = st.columns(2)
+            with cols_img[0]:
+                st.file_uploader(
+                    "Tải ảnh lên:", 
+                    type=["png", "jpg", "jpeg"],
+                    accept_multiple_files=False,
+                    key="uploaded_img",
+                    on_change=add_image_to_messages,
+                )
+            
+            with cols_img[1]:
+                st.camera_input(
+                    "Chụp ảnh", 
+                    key="camera_img",
+                    on_change=add_image_to_messages,
+                )
+            
+            st.write("### 🎤 Thu âm giọng nói:")
+            speech_input = audio_recorder("Bấm để nói:", icon_size="2x", neutral_color="#6ca395")
+            
+            if speech_input and "prev_speech_hash" in st.session_state and st.session_state.prev_speech_hash != hash(speech_input):
+                st.session_state.prev_speech_hash = hash(speech_input)
+                
+                client = OpenAI(api_key=openai_api_key)
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=("audio.wav", speech_input),
+                )
+                
+                audio_prompt = transcript.text
+                
+                if audio_prompt:
+                    st.session_state.messages.append(
+                        {
+                            "role": "user", 
+                            "content": [{
+                                "type": "text",
+                                "text": audio_prompt,
+                            }]
+                        }
+                    )
+                    
+                    # Hiển thị tin nhắn mới
+                    with st.chat_message("user"):
+                        st.markdown(audio_prompt)
+                    
+                    # Phản hồi từ AI
+                    with st.chat_message("assistant"):
+                        st.write_stream(stream_llm_response(api_key=openai_api_key))
+        
+        with col1:
+            # Nhập tin nhắn
+            if prompt := st.chat_input("Hỏi trợ lý gia đình..."):
+                # Kiểm tra xem có phải là thêm sự kiện không trước khi thêm vào tin nhắn
+                event_info = parse_event_from_message(prompt)
+                
+                # Thêm tin nhắn vào lịch sử
+                st.session_state.messages.append(
+                    {
+                        "role": "user", 
+                        "content": [{
+                            "type": "text",
+                            "text": prompt,
+                        }]
+                    }
+                )
+                
+                # Hiển thị tin nhắn mới
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+                
+                # Phản hồi từ AI
+                with st.chat_message("assistant"):
+                    # Nếu là lệnh thêm sự kiện, thông báo đang xử lý
+                    if event_info["event_detected"]:
+                        st.info("Đang phân tích và thêm sự kiện...")
+                    
+                    st.write_stream(stream_llm_response(api_key=openai_api_key))
+
+
+if __name__=="__main__":
+    main()
