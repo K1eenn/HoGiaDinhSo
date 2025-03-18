@@ -55,55 +55,32 @@ def save_data(file_path, data):
         st.error(f"Không thể lưu dữ liệu: {e}")
         return False
 
+# Kiểm tra và đảm bảo cấu trúc dữ liệu đúng
 def verify_data_structure():
-    """Kiểm tra và đảm bảo cấu trúc dữ liệu đúng"""
     global family_data, events_data, notes_data
     
     # Đảm bảo tất cả dữ liệu là từ điển
     if not isinstance(family_data, dict):
-        logger.warning("family_data không phải từ điển. Khởi tạo lại.")
+        print("family_data không phải từ điển. Khởi tạo lại.")
         family_data = {}
         
     if not isinstance(events_data, dict):
-        logger.warning("events_data không phải từ điển. Khởi tạo lại.")
+        print("events_data không phải từ điển. Khởi tạo lại.")
         events_data = {}
         
     if not isinstance(notes_data, dict):
-        logger.warning("notes_data không phải từ điển. Khởi tạo lại.")
+        print("notes_data không phải từ điển. Khởi tạo lại.")
         notes_data = {}
     
     # Kiểm tra và sửa các dữ liệu thành viên
     members_to_fix = []
     for member_id, member in family_data.items():
         if not isinstance(member, dict):
-            logger.warning(f"Thành viên ID {member_id} không đúng định dạng. Sẽ xóa.")
             members_to_fix.append(member_id)
     
     # Xóa các mục không hợp lệ
     for member_id in members_to_fix:
         del family_data[member_id]
-    
-    # Kiểm tra và đảm bảo đúng kiểu dữ liệu cho ID sự kiện
-    events_to_fix = {}
-    for event_id, event in events_data.items():
-        if not isinstance(event, dict):
-            logger.warning(f"Sự kiện ID {event_id} không đúng định dạng. Sẽ xóa.")
-            continue
-        
-        # Chuyển đổi ID số thành chuỗi nếu cần
-        if isinstance(event_id, int):
-            events_to_fix[event_id] = str(event_id)
-            logger.info(f"Chuyển đổi ID sự kiện từ {event_id} (int) thành {str(event_id)} (str)")
-    
-    # Cập nhật ID sự kiện
-    for old_id, new_id in events_to_fix.items():
-        events_data[new_id] = events_data.pop(old_id)
-    
-    # Log số lượng mục trong mỗi loại dữ liệu
-    logger.info(f"Số lượng thành viên: {len(family_data)}")
-    logger.info(f"Số lượng sự kiện: {len(events_data)}")
-    logger.info(f"Số lượng ghi chú: {len(notes_data)}")
-    logger.info(f"ID của các sự kiện: {list(events_data.keys())}")
         
     # Lưu lại dữ liệu đã sửa
     save_data(FAMILY_DATA_FILE, family_data)
@@ -206,24 +183,14 @@ def process_assistant_response(response):
                     cmd_end = response.index("##", cmd_start)
                     cmd = response[cmd_start:cmd_end].strip()
                     
-                if cmd_type == "DELETE_EVENT":
-                    logger.info(f"Xử lý lệnh DELETE_EVENT: {cmd}")
-                    try:
+                    elif cmd_type == "DELETE_EVENT":
                         event_id = cmd.strip()
-                        success = delete_event(event_id)
+                        logger.info(f"Lệnh xóa sự kiện được phát hiện với ID={event_id}")
+                        success, message = delete_event(event_id)
                         if success:
-                            st.success(f"Đã xóa sự kiện!")
+                            st.success(message)
                         else:
-                            st.warning(f"Không thể xóa sự kiện với ID: {event_id}")
-                            # Thử xóa lại với các ID khác (để xử lý trường hợp ID dạng chuỗi vs số)
-                            if event_id.isdigit():
-                                # Thử với chuỗi số
-                                alt_success = delete_event(str(int(event_id)))
-                                if alt_success:
-                                    st.success(f"Đã xóa sự kiện!")
-                    except Exception as e:
-                        logger.error(f"Lỗi khi xử lý DELETE_EVENT: {e}")
-                        st.error(f"Lỗi khi xóa sự kiện: {e}")
+                            st.warning(message)
                     else:
                         details = json.loads(cmd)
                         if isinstance(details, dict):
@@ -297,27 +264,29 @@ def update_event(details):
         save_data(EVENTS_DATA_FILE, events_data)
 
 def delete_event(event_id):
-    """Xóa một sự kiện khỏi danh sách sự kiện"""
+    """Xóa một sự kiện dựa trên ID"""
     try:
-        logger.info(f"Đang cố gắng xóa sự kiện với ID: {event_id}")
-        # Kiểm tra sự tồn tại của ID
+        logger.info(f"Thực hiện xóa sự kiện có ID: {event_id}")
+        
+        # Kiểm tra nếu event_id là chuỗi số, thử chuyển đổi
+        if event_id.isdigit():
+            event_id = str(event_id)  # Đảm bảo ID là chuỗi
+        
+        # Log danh sách ID hiện có để debug
+        logger.info(f"Các ID sự kiện hiện có: {list(events_data.keys())}")
+        
         if event_id in events_data:
-            logger.info(f"Tìm thấy sự kiện để xóa: {events_data[event_id].get('title', '')}")
+            event_title = events_data[event_id].get('title', 'Không tiêu đề')
             del events_data[event_id]
-            success = save_data(EVENTS_DATA_FILE, events_data)
-            if success:
-                logger.info(f"Đã xóa thành công sự kiện ID: {event_id}")
-                return True
-            else:
-                logger.error(f"Không thể lưu dữ liệu sau khi xóa sự kiện ID: {event_id}")
-                return False
+            save_data(EVENTS_DATA_FILE, events_data)
+            logger.info(f"Đã xóa sự kiện ID={event_id}, tiêu đề: {event_title}")
+            return True, f"Đã xóa sự kiện: {event_title}"
         else:
-            logger.warning(f"Không tìm thấy sự kiện với ID: {event_id}")
-            logger.info(f"Danh sách ID sự kiện hiện có: {list(events_data.keys())}")
-            return False
+            logger.warning(f"Không tìm thấy sự kiện có ID={event_id}")
+            return False, f"Không tìm thấy sự kiện có ID={event_id}"
     except Exception as e:
         logger.error(f"Lỗi khi xóa sự kiện: {e}")
-        return False
+        return False, f"Lỗi khi xóa sự kiện: {e}"
 
 # Các hàm quản lý ghi chú
 def add_note(details):
@@ -513,14 +482,15 @@ def main():
                 with col1:
                     if st.button(f"Chỉnh sửa", key=f"edit_event_{event_id}"):
                         st.session_state.editing_event = event_id
+                # Nút xóa sự kiện
                 with col2:
                     if st.button(f"Xóa", key=f"delete_event_{event_id}"):
-                        success = delete_event(event_id)
+                        success, message = delete_event(event_id)
                         if success:
-                            st.success(f"Đã xóa sự kiện!")
-                            st.rerun()
+                            st.success(message)
                         else:
-                            st.error(f"Không thể xóa sự kiện ID: {event_id}")
+                            st.warning(message)
+                        st.rerun()
                 st.divider()
         
         # Form chỉnh sửa sự kiện (xuất hiện khi đang chỉnh sửa)
@@ -659,6 +629,17 @@ def main():
                     elif content["type"] == "image_url":      
                         st.image(content["image_url"]["url"])
 
+        # Tạo danh sách sự kiện để hiển thị trong system prompt
+        events_list = ""
+        for event_id, event in events_data.items():
+            title = event.get('title', 'Không tiêu đề')
+            date = event.get('date', '')
+            time = event.get('time', '')
+            events_list += f"- ID: {event_id}, Tiêu đề: {title}, Ngày: {date}, Giờ: {time}\n"
+        
+        if not events_list:
+            events_list = "Không có sự kiện nào.\n"
+        
         # System prompt cho trợ lý
         system_prompt = f"""
         Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
@@ -676,19 +657,21 @@ def main():
         - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
         - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
         - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
-        - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
+        
+        QUAN TRỌNG VỀ XÓA SỰ KIỆN: 
+        - Khi người dùng yêu cầu xóa một sự kiện, bạn PHẢI sử dụng lệnh ##DELETE_EVENT:id_sự_kiện##
+        - Trong đó id_sự_kiện phải là ID chính xác của sự kiện cần xóa, không được thêm bất kỳ ký tự nào khác
+        - Ví dụ: ##DELETE_EVENT:1## hoặc ##DELETE_EVENT:2##
+        
+        Danh sách sự kiện hiện tại:
+        {events_list}
         
         CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
         
-        QUAN TRỌNG: 
-        - Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn.
-        - Khi người dùng yêu cầu xóa sự kiện, hãy luôn sử dụng lệnh ##DELETE_EVENT:id## trong phản hồi của bạn. ID của sự kiện là chuỗi số, như "1", "2", ...
+        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn.
         
         Thông tin hiện tại về gia đình:
         {json.dumps(family_data, ensure_ascii=False, indent=2)}
-        
-        Sự kiện sắp tới:
-        {json.dumps(events_data, ensure_ascii=False, indent=2)}
         
         Ghi chú:
         {json.dumps(notes_data, ensure_ascii=False, indent=2)}
