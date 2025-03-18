@@ -1013,7 +1013,7 @@ def main():
             col_idx = i % 3
             with suggestion_cols[col_idx]:
                 # Dùng một key duy nhất cho mỗi button
-                if st.button(suggestion, key=f"suggestion_{i}_{hash(suggestion)[:5]}"):
+                if st.button(suggestion, key=f"suggestion_{i}_{abs(hash(suggestion)) % 10000}"):
                     # Tạo tin nhắn mới từ câu đề xuất
                     if "messages" not in st.session_state:
                         st.session_state.messages = []
