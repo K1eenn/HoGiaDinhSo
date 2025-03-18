@@ -19,11 +19,20 @@ FAMILY_DATA_FILE = "family_data.json"
 EVENTS_DATA_FILE = "events_data.json"
 NOTES_DATA_FILE = "notes_data.json"
 
-# Các hàm đọc và lưu dữ liệu
+# Tải dữ liệu ban đầu
 def load_data(file_path):
     if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # Đảm bảo dữ liệu là một từ điển
+                if not isinstance(data, dict):
+                    print(f"Dữ liệu trong {file_path} không phải từ điển. Khởi tạo lại.")
+                    return {}
+                return data
+        except Exception as e:
+            print(f"Lỗi khi đọc {file_path}: {e}")
+            return {}
     return {}
 
 def save_data(file_path, data):
@@ -35,18 +44,45 @@ def save_data(file_path, data):
     except Exception as e:
         print(f"Lỗi khi lưu dữ liệu vào {file_path}: {e}")
 
+# Kiểm tra và đảm bảo cấu trúc dữ liệu đúng
+def verify_data_structure():
+    global family_data, events_data, notes_data
+    
+    # Đảm bảo tất cả dữ liệu là từ điển
+    if not isinstance(family_data, dict):
+        print("family_data không phải từ điển. Khởi tạo lại.")
+        family_data = {}
+        
+    if not isinstance(events_data, dict):
+        print("events_data không phải từ điển. Khởi tạo lại.")
+        events_data = {}
+        
+    if not isinstance(notes_data, dict):
+        print("notes_data không phải từ điển. Khởi tạo lại.")
+        notes_data = {}
+    
+    # Kiểm tra và sửa các dữ liệu thành viên
+    members_to_fix = []
+    for member_id, member in family_data.items():
+        if not isinstance(member, dict):
+            members_to_fix.append(member_id)
+    
+    # Xóa các mục không hợp lệ
+    for member_id in members_to_fix:
+        del family_data[member_id]
+        
+    # Lưu lại dữ liệu đã sửa
+    save_data(FAMILY_DATA_FILE, family_data)
+    save_data(EVENTS_DATA_FILE, events_data)
+    save_data(NOTES_DATA_FILE, notes_data)
+
 # Tải dữ liệu ban đầu
 family_data = load_data(FAMILY_DATA_FILE)
 events_data = load_data(EVENTS_DATA_FILE)
 notes_data = load_data(NOTES_DATA_FILE)
 
-# Kiểm tra cấu trúc dữ liệu - nếu trống thì tạo cấu trúc mặc định
-if not isinstance(family_data, dict):
-    family_data = {}
-if not isinstance(events_data, dict):
-    events_data = {}
-if not isinstance(notes_data, dict):
-    notes_data = {}
+# Kiểm tra và sửa cấu trúc dữ liệu
+verify_data_structure()
 
 # Hàm chuyển đổi hình ảnh sang base64
 def get_image_base64(image_raw):
@@ -92,56 +128,64 @@ def stream_llm_response(api_key, system_prompt=""):
             }
         ]})
 
-# Hàm xử lý lệnh từ phản hồi của trợ lý
 def process_assistant_response(response):
-    # Tìm kiếm mẫu lệnh trong phản hồi
-    if "##ADD_FAMILY_MEMBER:" in response:
-        cmd = response.split("##ADD_FAMILY_MEMBER:")[1].split("##")[0].strip()
-        try:
-            details = json.loads(cmd)
-            add_family_member(details)
-        except json.JSONDecodeError:
-            pass
-    
-    if "##UPDATE_PREFERENCE:" in response:
-        cmd = response.split("##UPDATE_PREFERENCE:")[1].split("##")[0].strip()
-        try:
-            details = json.loads(cmd)
-            update_preference(details)
-        except json.JSONDecodeError:
-            pass
-    
-    if "##ADD_EVENT:" in response:
-        cmd = response.split("##ADD_EVENT:")[1].split("##")[0].strip()
-        try:
-            details = json.loads(cmd)
-            add_event(details)
-        except json.JSONDecodeError:
-            pass
-    
-    if "##UPDATE_EVENT:" in response:
-        cmd = response.split("##UPDATE_EVENT:")[1].split("##")[0].strip()
-        try:
-            details = json.loads(cmd)
-            update_event(details)
-        except json.JSONDecodeError:
-            pass
-    
-    if "##DELETE_EVENT:" in response:
-        cmd = response.split("##DELETE_EVENT:")[1].split("##")[0].strip()
-        try:
-            event_id = cmd.strip()
-            delete_event(event_id)
-        except:
-            pass
-    
-    if "##ADD_NOTE:" in response:
-        cmd = response.split("##ADD_NOTE:")[1].split("##")[0].strip()
-        try:
-            details = json.loads(cmd)
-            add_note(details)
-        except json.JSONDecodeError:
-            pass
+    """Hàm xử lý lệnh từ phản hồi của trợ lý"""
+    try:
+        # Tìm kiếm mẫu lệnh trong phản hồi
+        if "##ADD_FAMILY_MEMBER:" in response:
+            cmd = response.split("##ADD_FAMILY_MEMBER:")[1].split("##")[0].strip()
+            try:
+                details = json.loads(cmd)
+                if isinstance(details, dict):
+                    add_family_member(details)
+            except json.JSONDecodeError as e:
+                print(f"Lỗi khi phân tích JSON cho ADD_FAMILY_MEMBER: {e}")
+        
+        if "##UPDATE_PREFERENCE:" in response:
+            cmd = response.split("##UPDATE_PREFERENCE:")[1].split("##")[0].strip()
+            try:
+                details = json.loads(cmd)
+                if isinstance(details, dict):
+                    update_preference(details)
+            except json.JSONDecodeError as e:
+                print(f"Lỗi khi phân tích JSON cho UPDATE_PREFERENCE: {e}")
+        
+        if "##ADD_EVENT:" in response:
+            cmd = response.split("##ADD_EVENT:")[1].split("##")[0].strip()
+            try:
+                details = json.loads(cmd)
+                if isinstance(details, dict):
+                    add_event(details)
+            except json.JSONDecodeError as e:
+                print(f"Lỗi khi phân tích JSON cho ADD_EVENT: {e}")
+        
+        if "##UPDATE_EVENT:" in response:
+            cmd = response.split("##UPDATE_EVENT:")[1].split("##")[0].strip()
+            try:
+                details = json.loads(cmd)
+                if isinstance(details, dict):
+                    update_event(details)
+            except json.JSONDecodeError as e:
+                print(f"Lỗi khi phân tích JSON cho UPDATE_EVENT: {e}")
+        
+        if "##DELETE_EVENT:" in response:
+            cmd = response.split("##DELETE_EVENT:")[1].split("##")[0].strip()
+            try:
+                event_id = cmd.strip()
+                delete_event(event_id)
+            except Exception as e:
+                print(f"Lỗi khi xóa sự kiện: {e}")
+        
+        if "##ADD_NOTE:" in response:
+            cmd = response.split("##ADD_NOTE:")[1].split("##")[0].strip()
+            try:
+                details = json.loads(cmd)
+                if isinstance(details, dict):
+                    add_note(details)
+            except json.JSONDecodeError as e:
+                print(f"Lỗi khi phân tích JSON cho ADD_NOTE: {e}")
+    except Exception as e:
+        print(f"Lỗi khi xử lý phản hồi của trợ lý: {e}")
 
 # Các hàm quản lý thông tin gia đình
 def add_family_member(details):
@@ -249,63 +293,75 @@ def main():
                     save_data(FAMILY_DATA_FILE, family_data)
                     st.success(f"Đã thêm {member_name} vào gia đình!")
         
-                    # Xem và chỉnh sửa thành viên gia đình
+                # Xem và chỉnh sửa thành viên gia đình
         with st.expander("👥 Thành viên gia đình"):
-            for member_id, member in family_data.items():
-                # Sử dụng get() để xử lý trường hợp không có khóa name hoặc age
-                member_name = member.get("name", "Không tên")
-                member_age = member.get("age", "")
-                
-                st.write(f"**{member_name}** ({member_age})")
-                
-                # Hiển thị sở thích
-                if "preferences" in member:
-                    for pref_key, pref_value in member["preferences"].items():
-                        if pref_value:
-                            st.write(f"- {pref_key.capitalize()}: {pref_value}")
-                
-                # Nút chỉnh sửa cho mỗi thành viên
-                if st.button(f"Chỉnh sửa {member_name}", key=f"edit_{member_id}"):
-                    st.session_state.editing_member = member_id
+            if not family_data:
+                st.write("Chưa có thành viên nào trong gia đình")
+            else:
+                for member_id, member in family_data.items():
+                    # Kiểm tra kiểu dữ liệu của member
+                    if isinstance(member, dict):
+                        # Sử dụng get() khi member là dict
+                        member_name = member.get("name", "Không tên")
+                        member_age = member.get("age", "")
+                        
+                        st.write(f"**{member_name}** ({member_age})")
+                        
+                        # Hiển thị sở thích
+                        if "preferences" in member and isinstance(member["preferences"], dict):
+                            for pref_key, pref_value in member["preferences"].items():
+                                if pref_value:
+                                    st.write(f"- {pref_key.capitalize()}: {pref_value}")
+                        
+                        # Nút chỉnh sửa cho mỗi thành viên
+                        if st.button(f"Chỉnh sửa {member_name}", key=f"edit_{member_id}"):
+                            st.session_state.editing_member = member_id
+                    else:
+                        # Xử lý khi member không phải dict
+                        st.error(f"Dữ liệu thành viên ID={member_id} không đúng định dạng")
         
         # Form chỉnh sửa thành viên (xuất hiện khi đang chỉnh sửa)
         if "editing_member" in st.session_state and st.session_state.editing_member:
             member_id = st.session_state.editing_member
-            member = family_data[member_id]
-            
-            with st.form(f"edit_member_{member_id}"):
-                st.write(f"Chỉnh sửa: {member['name']}")
+            if member_id in family_data and isinstance(family_data[member_id], dict):
+                member = family_data[member_id]
                 
-                # Các trường chỉnh sửa
-                new_name = st.text_input("Tên", member["name"])
-                new_age = st.text_input("Tuổi", member["age"])
-                
-                # Sở thích
-                st.write("Sở thích:")
-                prefs = member.get("preferences", {})
-                new_food = st.text_input("Món ăn yêu thích", prefs.get("food", ""))
-                new_hobby = st.text_input("Sở thích", prefs.get("hobby", ""))
-                new_color = st.text_input("Màu yêu thích", prefs.get("color", ""))
-                
-                save_edits = st.form_submit_button("Lưu")
-                cancel_edits = st.form_submit_button("Hủy")
-                
-                if save_edits:
-                    family_data[member_id]["name"] = new_name
-                    family_data[member_id]["age"] = new_age
-                    family_data[member_id]["preferences"] = {
-                        "food": new_food,
-                        "hobby": new_hobby,
-                        "color": new_color
-                    }
-                    save_data(FAMILY_DATA_FILE, family_data)
-                    st.session_state.editing_member = None
-                    st.success("Đã cập nhật thông tin!")
-                    st.rerun()
-                
-                if cancel_edits:
-                    st.session_state.editing_member = None
-                    st.rerun()
+                with st.form(f"edit_member_{member_id}"):
+                    st.write(f"Chỉnh sửa: {member.get('name', 'Không tên')}")
+                    
+                    # Các trường chỉnh sửa
+                    new_name = st.text_input("Tên", member.get("name", ""))
+                    new_age = st.text_input("Tuổi", member.get("age", ""))
+                    
+                    # Sở thích
+                    st.write("Sở thích:")
+                    prefs = member.get("preferences", {}) if isinstance(member.get("preferences"), dict) else {}
+                    new_food = st.text_input("Món ăn yêu thích", prefs.get("food", ""))
+                    new_hobby = st.text_input("Sở thích", prefs.get("hobby", ""))
+                    new_color = st.text_input("Màu yêu thích", prefs.get("color", ""))
+                    
+                    save_edits = st.form_submit_button("Lưu")
+                    cancel_edits = st.form_submit_button("Hủy")
+                    
+                    if save_edits:
+                        family_data[member_id]["name"] = new_name
+                        family_data[member_id]["age"] = new_age
+                        family_data[member_id]["preferences"] = {
+                            "food": new_food,
+                            "hobby": new_hobby,
+                            "color": new_color
+                        }
+                        save_data(FAMILY_DATA_FILE, family_data)
+                        st.session_state.editing_member = None
+                        st.success("Đã cập nhật thông tin!")
+                        st.rerun()
+                    
+                    if cancel_edits:
+                        st.session_state.editing_member = None
+                        st.rerun()
+            else:
+                st.error(f"Không tìm thấy thành viên với ID: {member_id}")
+                st.session_state.editing_member = None
         
         st.divider()
         
@@ -321,8 +377,10 @@ def main():
                 event_desc = st.text_area("Mô tả")
                 
                 # Multi-select cho người tham gia
-                member_names = [member["name"] for member_id, member in family_data.items()]
-                participants = st.multiselect("Người tham gia", member_names)
+                try:
+                    member_names = [member.get("name", "") for member_id, member in family_data.items() 
+                                   if isinstance(member, dict) and member.get("name")]
+                    participants = st.multiselect("Người tham gia", member_names)
                 
                 add_event_submitted = st.form_submit_button("Thêm sự kiện")
                 
@@ -402,8 +460,10 @@ def main():
                 new_desc = st.text_area("Mô tả", event["description"])
                 
                 # Multi-select cho người tham gia
-                member_names = [member["name"] for member_id, member in family_data.items()]
-                new_participants = st.multiselect("Người tham gia", member_names, default=event["participants"])
+                try:
+                    member_names = [member.get("name", "") for member_id, member in family_data.items() 
+                                   if isinstance(member, dict) and member.get("name")]
+                    new_participants = st.multiselect("Người tham gia", member_names, default=event.get("participants", []))
                 
                 save_event_edits = st.form_submit_button("Lưu")
                 cancel_event_edits = st.form_submit_button("Hủy")
