@@ -14,17 +14,28 @@ dotenv.load_dotenv()
 # Chỉ sử dụng một mô hình duy nhất
 openai_model = "gpt-4o-mini"
 
-# Đường dẫn file lưu trữ dữ liệu
-FAMILY_DATA_FILE = "family_data.json"
-EVENTS_DATA_FILE = "events_data.json"
-NOTES_DATA_FILE = "notes_data.json"
-
-# Thiết lập log để debug
-import logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                   handlers=[logging.StreamHandler()])
-logger = logging.getLogger('family_assistant')
+# Thêm các hàm tiện ích cho việc tính toán ngày tháng
+def get_date_from_relative_term(term):
+    """Chuyển đổi từ mô tả tương đối về ngày thành ngày thực tế"""
+    today = datetime.datetime.now().date()
+    
+    if term in ["hôm nay", "today"]:
+        return today
+    elif term in ["ngày mai", "mai", "tomorrow"]:
+        return today + datetime.timedelta(days=1)
+    elif term in ["ngày kia", "day after tomorrow"]:
+        return today + datetime.timedelta(days=2)
+    elif term in ["hôm qua", "yesterday"]:
+        return today - datetime.timedelta(days=1)
+    elif "tuần tới" in term or "tuần sau" in term or "next week" in term:
+        return today + datetime.timedelta(days=7)
+    elif "tuần trước" in term or "last week" in term:
+        return today - datetime.timedelta(days=7)
+    elif "tháng tới" in term or "tháng sau" in term or "next month" in term:
+        # Đơn giản hóa bằng cách thêm 30 ngày
+        return today + datetime.timedelta(days=30)
+    
+    return None
 
 # Tải dữ liệu ban đầu
 def load_data(file_path):
@@ -183,7 +194,7 @@ def process_assistant_response(response):
     try:
         logger.info(f"Xử lý phản hồi của trợ lý, độ dài: {len(response)}")
         
-        # Tìm kiếm mẫu lệnh trong phản hồi
+        # Xử lý lệnh thêm sự kiện
         if "##ADD_EVENT:" in response:
             logger.info("Tìm thấy lệnh ADD_EVENT")
             cmd_start = response.index("##ADD_EVENT:") + len("##ADD_EVENT:")
@@ -195,6 +206,15 @@ def process_assistant_response(response):
             try:
                 details = json.loads(cmd)
                 if isinstance(details, dict):
+                    # Xử lý các từ ngữ tương đối về thời gian
+                    logger.info(f"Đang xử lý ngày: {details.get('date', '')}")
+                    if details.get('date') and not details['date'][0].isdigit():
+                        # Nếu ngày không bắt đầu bằng số, có thể là mô tả tương đối
+                        relative_date = get_date_from_relative_term(details['date'].lower())
+                        if relative_date:
+                            details['date'] = relative_date.strftime("%Y-%m-%d")
+                            logger.info(f"Đã chuyển đổi ngày thành: {details['date']}")
+                    
                     logger.info(f"Thêm sự kiện: {details.get('title', 'Không tiêu đề')}")
                     success = add_event(details)
                     if success:
@@ -203,8 +223,34 @@ def process_assistant_response(response):
                 logger.error(f"Lỗi khi phân tích JSON cho ADD_EVENT: {e}")
                 logger.error(f"Chuỗi JSON gốc: {cmd}")
         
+        # Xử lý lệnh UPDATE_EVENT
+        if "##UPDATE_EVENT:" in response:
+            logger.info("Tìm thấy lệnh UPDATE_EVENT")
+            cmd_start = response.index("##UPDATE_EVENT:") + len("##UPDATE_EVENT:")
+            cmd_end = response.index("##", cmd_start)
+            cmd = response[cmd_start:cmd_end].strip()
+            
+            logger.info(f"Nội dung lệnh UPDATE_EVENT: {cmd}")
+            
+            try:
+                details = json.loads(cmd)
+                if isinstance(details, dict):
+                    # Xử lý các từ ngữ tương đối về thời gian
+                    if details.get('date') and not details['date'][0].isdigit():
+                        # Nếu ngày không bắt đầu bằng số, có thể là mô tả tương đối
+                        relative_date = get_date_from_relative_term(details['date'].lower())
+                        if relative_date:
+                            details['date'] = relative_date.strftime("%Y-%m-%d")
+                    
+                    logger.info(f"Cập nhật sự kiện: {details.get('title', 'Không tiêu đề')}")
+                    success = update_event(details)
+                    if success:
+                        st.success(f"Đã cập nhật sự kiện: {details.get('title', '')}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Lỗi khi phân tích JSON cho UPDATE_EVENT: {e}")
+        
         # Các lệnh xử lý khác tương tự
-        for cmd_type in ["ADD_FAMILY_MEMBER", "UPDATE_PREFERENCE", "UPDATE_EVENT", "DELETE_EVENT", "ADD_NOTE"]:
+        for cmd_type in ["ADD_FAMILY_MEMBER", "UPDATE_PREFERENCE", "DELETE_EVENT", "ADD_NOTE"]:
             cmd_pattern = f"##{cmd_type}:"
             if cmd_pattern in response:
                 logger.info(f"Tìm thấy lệnh {cmd_type}")
@@ -226,9 +272,6 @@ def process_assistant_response(response):
                             elif cmd_type == "UPDATE_PREFERENCE":
                                 update_preference(details)
                                 st.success(f"Đã cập nhật sở thích!")
-                            elif cmd_type == "UPDATE_EVENT":
-                                update_event(details)
-                                st.success(f"Đã cập nhật sự kiện!")
                             elif cmd_type == "ADD_NOTE":
                                 add_note(details)
                                 st.success(f"Đã thêm ghi chú!")
@@ -282,12 +325,28 @@ def add_event(details):
         return False
 
 def update_event(details):
-    event_id = details.get("id")
-    if event_id in events_data:
-        for key, value in details.items():
-            if key != "id" and value is not None:
-                events_data[event_id][key] = value
-        save_data(EVENTS_DATA_FILE, events_data)
+    """Cập nhật thông tin về một sự kiện"""
+    try:
+        event_id = details.get("id")
+        if event_id in events_data:
+            # Cập nhật các trường được cung cấp
+            for key, value in details.items():
+                if key != "id" and value is not None:
+                    events_data[event_id][key] = value
+            
+            # Đảm bảo trường created_on được giữ nguyên
+            if "created_on" not in events_data[event_id]:
+                events_data[event_id]["created_on"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            save_data(EVENTS_DATA_FILE, events_data)
+            logger.info(f"Đã cập nhật sự kiện ID={event_id}: {details}")
+            return True
+        else:
+            logger.warning(f"Không tìm thấy sự kiện ID={event_id}")
+            return False
+    except Exception as e:
+        logger.error(f"Lỗi khi cập nhật sự kiện: {e}")
+        return False
 
 def delete_event(event_id):
     if event_id in events_data:
@@ -677,7 +736,7 @@ def main():
         # System prompt cho trợ lý
         system_prompt = f"""
         Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
-        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn có thể thực hiện các hành động sau:
+        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn phải thực hiện ngay các hành động sau:
         
         1. Thêm thông tin về thành viên gia đình (tên, tuổi, sở thích)
         2. Cập nhật sở thích của thành viên gia đình
@@ -694,9 +753,19 @@ def main():
         - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
         - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
         
+        QUY TẮC THÊM SỰ KIỆN ĐƠN GIẢN:
+        1. Khi được yêu cầu thêm sự kiện, hãy thực hiện NGAY LẬP TỨC mà không cần hỏi thêm thông tin không cần thiết.
+        2. Khi người dùng nói "ngày mai" hoặc "tuần sau", hãy tự động tính toán ngày trong cú pháp YYYY-MM-DD.
+        3. Nếu không có thời gian cụ thể, sử dụng thời gian mặc định là 19:00.
+        4. Sử dụng mô tả ngắn gọn từ yêu cầu của người dùng.
+        5. Chỉ hỏi thông tin nếu thực sự cần thiết, tránh nhiều bước xác nhận.
+        6. Sau khi thêm/cập nhật/xóa sự kiện, tóm tắt ngắn gọn hành động đã thực hiện.
+        
+        Hôm nay là {datetime.datetime.now().strftime("%d/%m/%Y")}.
+        
         CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
         
-        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn.
+        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn mà không cần quá nhiều bước xác nhận.
         
         Đối với hình ảnh:
         - Nếu người dùng gửi hình ảnh món ăn, hãy mô tả món ăn, và đề xuất cách nấu hoặc thông tin dinh dưỡng nếu phù hợp
