@@ -1,4 +1,34 @@
-import streamlit as st
+# Hàm để phân tích tin nhắn yêu cầu chi tiết khi có nhiều tùy chọn
+def parse_specific_event_request(message, matching_events):
+    """
+    Phân tích tin nhắn để xác định sự kiện cụ thể khi có nhiều lựa chọn
+    Trả về index của sự kiện trong danh sách matching_events hoặc -1 nếu không xác định được
+    """
+    # Tìm số thứ tự
+    import re
+    
+    # Tìm các số trong văn bản
+    numbers = re.findall(r'\d+', message)
+    for number in numbers:
+        num = int(number)
+        if 1 <= num <= len(matching_events):
+            return num - 1  # trừ 1 vì index bắt đầu từ 0
+    
+    # Tìm kiếm theo tên chính xác
+    message_lower = message.lower()
+    for i, (_, event) in enumerate(matching_events):
+        # Nếu tên sự kiện xuất hiện đầy đủ trong tin nhắn
+        if event["title"].lower() in message_lower:
+            return i
+        
+        # Hoặc nếu tin nhắn chứa cả ngày và phần của tên
+        if event["date"] in message:
+            title_words = event["title"].lower().split()
+            for word in title_words:
+                if len(word) > 3 and word in message_lower:  # Chỉ xét các từ có ít nhất 4 ký tự
+                    return i
+    
+    return -1  # Không tìm thấy sự kiện cụ thểimport streamlit as st
 from openai import OpenAI
 import dotenv
 import os
@@ -310,18 +340,111 @@ def stream_llm_response(api_key=None):
             family_data = load_family_data()
             event_info = parse_event_from_message(last_user_message)
             
+            # Xử lý trường hợp tin nhắn trước đó đã trả về danh sách sự kiện để chọn
+            if "last_matching_events" in st.session_state and not event_info["event_detected"]:
+                # Phân tích xem người dùng đang chọn sự kiện nào từ danh sách trước đó
+                event_index = parse_specific_event_request(last_user_message, st.session_state.last_matching_events)
+                if event_index >= 0:
+                    # Tìm thấy lựa chọn
+                    idx, event = st.session_state.last_matching_events[event_index]
+                    last_intent = st.session_state.last_event_intent
+                    
+                    if last_intent == "delete":
+                        # Xóa sự kiện đã chọn
+                        title = event["title"]
+                        del family_data["events"][idx]
+                        save_family_data(family_data)
+                        confirmation = f"✅ Đã xóa sự kiện: {title}."
+                    elif last_intent == "edit" and "last_edit_info" in st.session_state:
+                        # Sửa sự kiện đã chọn với thông tin từ yêu cầu sửa trước đó
+                        edit_info = st.session_state.last_edit_info
+                        changes_made = False
+                        change_details = []
+                        
+                        # Cập nhật ngày nếu có
+                        if edit_info["date"]:
+                            old_date = event["date"]
+                            new_date = edit_info["date"].strftime("%Y-%m-%d")
+                            if old_date != new_date:
+                                event["date"] = new_date
+                                changes_made = True
+                                change_details.append(f"ngày từ {old_date} thành {new_date}")
+                        
+                        # Cập nhật mô tả nếu có
+                        if edit_info["description"].strip() and edit_info["description"].strip() != event["description"]:
+                            event["description"] = edit_info["description"].strip()
+                            changes_made = True
+                            change_details.append("mô tả")
+                        
+                        if changes_made:
+                            family_data["events"][idx] = event
+                            save_family_data(family_data)
+                            confirmation = f"✅ Đã cập nhật {', '.join(change_details)} cho sự kiện: {event['title']}."
+                        else:
+                            confirmation = f"ℹ️ Không có thông tin mới để cập nhật cho sự kiện: {event['title']}."
+                    
+                    # Xóa thông tin lựa chọn trước đó
+                    del st.session_state.last_matching_events
+                    if "last_event_intent" in st.session_state:
+                        del st.session_state.last_event_intent
+                    if "last_edit_info" in st.session_state:
+                        del st.session_state.last_edit_info
+                    
+                    if confirmation:
+                        # Thêm thông báo xác nhận vào đầu tin nhắn phản hồi
+                        response_message = confirmation + "\n\n"
+                        
+                        # Nạp lại dữ liệu gia đình sau khi cập nhật
+                        family_context = get_family_context()
+                        system_message["content"] = system_message["content"].replace(family_context, family_context)
+                        messages = [system_message] + st.session_state.messages
+            
             confirmation = None
             if event_info["event_detected"]:
+                st.write(f"DEBUG: Detected intent: {event_info['intent']}")
                 if event_info["intent"] == "add":
                     confirmation = add_event_from_chat(event_info, family_data)
                 elif event_info["intent"] == "delete":
                     confirmation = delete_event_from_chat(event_info, family_data)
+                    # Nếu trả về danh sách các lựa chọn, lưu lại để xử lý tiếp
+                    if confirmation and "Tìm thấy nhiều sự kiện có tên tương tự" in confirmation:
+                        matching_events = []
+                        for i, event in enumerate(family_data["events"]):
+                            if event_info["title"].lower() in event["title"].lower():
+                                matching_events.append((i, event))
+                        st.session_state.last_matching_events = matching_events
+                        st.session_state.last_event_intent = "delete"
                 elif event_info["intent"] == "edit":
                     confirmation = edit_event_from_chat(event_info, family_data)
+                    # Nếu trả về danh sách các lựa chọn, lưu lại để xử lý tiếp
+                    if confirmation and "Tìm thấy nhiều sự kiện có tên tương tự" in confirmation:
+                        matching_events = []
+                        for i, event in enumerate(family_data["events"]):
+                            if event_info["title"].lower() in event["title"].lower():
+                                matching_events.append((i, event))
+                        st.session_state.last_matching_events = matching_events
+                        st.session_state.last_event_intent = "edit"
+                        st.session_state.last_edit_info = event_info
                     
                 if confirmation:
                     # Thêm thông báo xác nhận vào đầu tin nhắn phản hồi
                     response_message = confirmation + "\n\n"
+                    
+                    # Nạp lại dữ liệu gia đình sau khi cập nhật
+                    family_context = get_family_context()
+                    system_message["content"] = f"""Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là hỗ trợ và tư vấn cho các thành viên 
+                    trong gia đình về mọi vấn đề liên quan đến cuộc sống hàng ngày, kế hoạch, sở thích và nhu cầu của họ.
+                    
+                    {family_context}
+                    
+                    Người dùng có thể quản lý sự kiện bằng cách chat với bạn:
+                    - Thêm sự kiện mới: "thêm sự kiện X vào ngày Y"
+                    - Xóa sự kiện: "xóa sự kiện X"
+                    - Chỉnh sửa sự kiện: "sửa sự kiện X sang ngày Y"
+                    
+                    Hãy sử dụng thông tin này để cá nhân hóa câu trả lời của bạn. Khi người dùng hỏi về một thành viên cụ thể, 
+                    hãy đưa ra gợi ý phù hợp với sở thích và hạn chế của họ. Nếu họ hỏi về kế hoạch, hãy nhắc họ về các sự kiện sắp tới."""
+                    messages = [system_message] + st.session_state.messages
     
     client = OpenAI(api_key=api_key)
     for chunk in client.chat.completions.create(
@@ -350,6 +473,12 @@ def main():
         st.session_state.prev_speech_hash = None
     if "edit_member" not in st.session_state:
         st.session_state.edit_member = None
+    if "last_matching_events" not in st.session_state:
+        st.session_state.last_matching_events = None
+    if "last_event_intent" not in st.session_state:
+        st.session_state.last_event_intent = None
+    if "last_edit_info" not in st.session_state:
+        st.session_state.last_edit_info = None
         
     # --- Cấu hình trang ---
     st.set_page_config(
