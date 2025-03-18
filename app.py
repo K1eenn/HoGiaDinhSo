@@ -550,6 +550,9 @@ def main():
             Hãy điều chỉnh cách giao tiếp của bạn để phù hợp với người dùng hiện tại và đưa ra các đề xuất phù hợp với sở thích của họ.
             Khi thêm sự kiện, hãy tự động thêm người dùng hiện tại vào danh sách người tham gia nếu phù hợp.
             """
+        else:
+            # Người dùng đang chat với toàn bộ gia đình
+            pass
 
         # Chat input và ghi âm - sửa đổi để lưu lịch sử theo cá nhân
         audio_prompt = None
