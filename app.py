@@ -140,10 +140,14 @@ def get_image_base64(image_raw):
     return base64.b64encode(img_byte).decode('utf-8')
 
 # Hàm tạo câu hỏi đề xuất dựa trên sở thích và thông tin thành viên
-def generate_suggestions(member_id):
+def generate_suggestions(member_id, seed_val=None):
     """Tạo các câu hỏi đề xuất cá nhân hóa dựa trên sở thích của thành viên"""
     if member_id not in family_data:
         return []
+    
+    # Đặt seed nếu được cung cấp để đảm bảo kết quả ổn định
+    if seed_val is not None:
+        random.seed(seed_val)
     
     member = family_data[member_id]
     suggestions = []
@@ -223,6 +227,10 @@ def generate_suggestions(member_id):
     # Kết hợp và xáo trộn danh sách đề xuất
     suggestions.extend(general_suggestions)
     random.shuffle(suggestions)
+    
+    # Đặt lại seed nếu đã thay đổi
+    if seed_val is not None:
+        random.seed()
     
     # Giới hạn số lượng đề xuất
     return suggestions[:5]
@@ -991,37 +999,57 @@ def main():
             on_click=reset_conversation,
         )
 
-    # Tạo danh sách câu hỏi đề xuất dựa trên thành viên hiện tại
-    suggestions = []
-    if selected_member and selected_member != "family":
-        suggestions = generate_suggestions(selected_member)
+    # Kiểm tra xem có đang xử lý đề xuất không
+    if "processing_suggestion" not in st.session_state:
+        st.session_state.processing_suggestion = False
+        
+    # Kiểm tra nếu có đề xuất được chọn từ lần rerun trước
+    if "selected_suggestion" in st.session_state and st.session_state.processing_suggestion:
+        # Nếu có, thêm tin nhắn và đặt lại biến cờ
+        suggestion = st.session_state.selected_suggestion
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+        st.session_state.messages.append({
+            "role": "user", 
+            "content": [{"type": "text", "text": suggestion}]
+        })
+        st.session_state.processing_suggestion = False
+        del st.session_state.selected_suggestion
+        # Không rerun ở đây mà để code tiếp tục thực hiện
     else:
-        # Đề xuất chung nếu không có thành viên cụ thể
-        suggestions = [
-            "Ý tưởng cho bữa tối gia đình hôm nay",
-            "Hoạt động cuối tuần cho cả gia đình",
-            "Các sự kiện sắp tới của gia đình",
-            "Gợi ý món tráng miệng cho bữa tối",
-            "Tin tức nổi bật hôm nay"
-        ]
-    
-    # Hiển thị các câu hỏi đề xuất làm nút bấm
-    if suggestions:
-        st.write("### 💡 Đề xuất cho bạn")
-        suggestion_cols = st.columns(min(3, len(suggestions)))
-        for i, suggestion in enumerate(suggestions[:min(5, len(suggestions))]):
-            col_idx = i % 3
-            with suggestion_cols[col_idx]:
-                # Dùng một key duy nhất cho mỗi button
-                if st.button(suggestion, key=f"suggestion_{i}_{abs(hash(suggestion)) % 10000}"):
-                    # Tạo tin nhắn mới từ câu đề xuất
-                    if "messages" not in st.session_state:
-                        st.session_state.messages = []
-                    st.session_state.messages.append({
-                        "role": "user", 
-                        "content": [{"type": "text", "text": suggestion}]
-                    })
-                    st.rerun()
+        # Tạo và lưu danh sách câu hỏi đề xuất vào session state nếu chưa có
+        if "suggestion_list" not in st.session_state or st.session_state.current_member != st.session_state.get("last_suggestion_member", None):
+            # Tạo danh sách câu hỏi đề xuất dựa trên thành viên hiện tại
+            if selected_member and selected_member != "family":
+                # Đặt seed cố định để đảm bảo các đề xuất không thay đổi mỗi lần rerun
+                random.seed(hash(selected_member) % 10000)
+                suggestions = generate_suggestions(selected_member)
+                random.seed()  # Đặt lại seed ngẫu nhiên
+            else:
+                # Đề xuất chung nếu không có thành viên cụ thể
+                suggestions = [
+                    "Ý tưởng cho bữa tối gia đình hôm nay",
+                    "Hoạt động cuối tuần cho cả gia đình",
+                    "Các sự kiện sắp tới của gia đình",
+                    "Gợi ý món tráng miệng cho bữa tối",
+                    "Tin tức nổi bật hôm nay"
+                ]
+            st.session_state.suggestion_list = suggestions[:min(5, len(suggestions))]
+            st.session_state.last_suggestion_member = st.session_state.current_member
+        
+        # Hiển thị các câu hỏi đề xuất làm nút bấm
+        if st.session_state.suggestion_list:
+            st.write("### 💡 Đề xuất cho bạn")
+            suggestion_cols = st.columns(min(3, len(st.session_state.suggestion_list)))
+            for i, suggestion in enumerate(st.session_state.suggestion_list):
+                col_idx = i % 3
+                with suggestion_cols[col_idx]:
+                    # Dùng một key duy nhất cho mỗi button
+                    if st.button(suggestion, key=f"suggestion_{i}_{abs(hash(suggestion)) % 10000}"):
+                        # Lưu đề xuất đã chọn và đặt cờ xử lý
+                        st.session_state.selected_suggestion = suggestion
+                        st.session_state.processing_suggestion = True
+                        st.rerun()
 
     # --- Nội dung chính ---
     # Kiểm tra nếu người dùng đã nhập OpenAI API Key, nếu không thì hiển thị cảnh báo
