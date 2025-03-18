@@ -1449,6 +1449,10 @@ def main():
     if "processing_suggestion" not in st.session_state:
         st.session_state.processing_suggestion = False
     
+    # Khởi tạo bộ đếm cho đề xuất nếu chưa có
+    if "suggestion_counter" not in st.session_state:
+        st.session_state.suggestion_counter = 0
+    
     # Kiểm tra xem cần tạo đề xuất mới không
     create_new_suggestions = False
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -1458,6 +1462,11 @@ def main():
             st.session_state.current_member != st.session_state.get("last_suggestion_member", None) or
             today != st.session_state.get("last_suggestion_date", "")):
         create_new_suggestions = True
+        
+    # Tạo mới nếu đã xử lý một câu hỏi đề xuất trước đó và đã đặt cờ tạo mới
+    if "refresh_suggestions" in st.session_state and st.session_state.refresh_suggestions:
+        create_new_suggestions = True
+        st.session_state.refresh_suggestions = False
         
     # Kiểm tra nếu có đề xuất được chọn từ lần rerun trước
     if "selected_suggestion" in st.session_state and st.session_state.processing_suggestion:
@@ -1554,19 +1563,33 @@ def main():
         # Đặt lại biến cờ
         st.session_state.processing_suggestion = False
         del st.session_state.selected_suggestion
+        
+        # Tạo mới danh sách đề xuất sau khi xử lý câu hỏi
+        if "suggestion_counter" not in st.session_state:
+            st.session_state.suggestion_counter = 0
+        st.session_state.suggestion_counter += 1
+        create_new_suggestions = True
     else:
         # Tạo và lưu danh sách câu hỏi đề xuất vào session state nếu cần
         if create_new_suggestions:
             # Tạo danh sách câu hỏi đề xuất dựa trên thành viên hiện tại và ngày
             if selected_member and selected_member != "family":
-                # Tạo seed dựa trên ngày và ID thành viên để mỗi ngày có các đề xuất khác nhau
+                # Tạo seed dựa trên ngày, ID thành viên và counter để đảm bảo đa dạng
+                if "suggestion_counter" not in st.session_state:
+                    st.session_state.suggestion_counter = 0
+                
+                # Tăng counter mỗi khi tạo mới danh sách đề xuất
+                st.session_state.suggestion_counter += 1
+                
+                # Sử dụng counter trong seed để tránh lặp lại
                 today = datetime.datetime.now().strftime("%Y-%m-%d")
-                today_seed = hash(f"{selected_member}_{today}") % 10000
+                today_seed = hash(f"{selected_member}_{today}_{st.session_state.suggestion_counter}") % 10000
                 suggestions = generate_suggestions(selected_member, seed_val=today_seed)
             else:
                 # Đề xuất chung nếu không có thành viên cụ thể
                 today = datetime.datetime.now().strftime("%Y-%m-%d")
-                today_seed = hash(f"family_{today}") % 10000
+                st.session_state.suggestion_counter = st.session_state.get("suggestion_counter", 0) + 1
+                today_seed = hash(f"family_{today}_{st.session_state.suggestion_counter}") % 10000
                 random.seed(today_seed)
                 general_suggestions = [
                     "Ý tưởng cho bữa tối gia đình hôm nay",
