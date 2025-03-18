@@ -32,6 +32,35 @@ def load_family_data():
                 data["members"] = members_dict
             elif "members" not in data:
                 data["members"] = {}
+                
+            # Đảm bảo mỗi thành viên có đầy đủ các trường cần thiết
+            for member_id, member in data["members"].items():
+                if not isinstance(member, dict):
+                    # Nếu thành viên không phải là dictionary, tạo một dictionary mới
+                    data["members"][member_id] = {
+                        "name": str(member) if member else f"Thành viên {member_id}",
+                        "relationship": "Không xác định",
+                        "age": 0,
+                        "preferences": [],
+                        "restrictions": [],
+                        "notes": ""
+                    }
+                    continue
+                
+                # Đảm bảo tất cả các trường cần thiết đều tồn tại
+                if "name" not in member or not member["name"]:
+                    member["name"] = f"Thành viên {member_id}"
+                if "relationship" not in member:
+                    member["relationship"] = "Không xác định"
+                if "age" not in member:
+                    member["age"] = 0
+                if "preferences" not in member or not isinstance(member["preferences"], list):
+                    member["preferences"] = []
+                if "restrictions" not in member or not isinstance(member["restrictions"], list):
+                    member["restrictions"] = []
+                if "notes" not in member:
+                    member["notes"] = ""
+            
             # Đảm bảo các khóa khác tồn tại
             if "events" not in data:
                 data["events"] = []
@@ -151,11 +180,17 @@ def main():
             if family_data["members"]:
                 st.subheader("Thành viên hiện tại:")
                 for member_id, member in family_data["members"].items():
-                    st.write(f"{member['name']} ({member['relationship']}, {member['age']} tuổi)")
-                    
-                    # Nút để xem/chỉnh sửa thành viên
-                    if st.button(f"Chỉnh sửa {member['name']}", key=f"edit_{member_id}"):
-                        st.session_state.edit_member = member_id
+                    try:
+                        name = member.get("name", f"Thành viên {member_id}")
+                        relationship = member.get("relationship", "Không xác định")
+                        age = member.get("age", 0)
+                        st.write(f"{name} ({relationship}, {age} tuổi)")
+                        
+                        # Nút để xem/chỉnh sửa thành viên
+                        if st.button(f"Chỉnh sửa {name}", key=f"edit_{member_id}"):
+                            st.session_state.edit_member = member_id
+                    except Exception as e:
+                        st.error(f"Lỗi hiển thị thành viên: {e}")
             
             # Form để thêm thành viên mới
             with st.expander("➕ Thêm thành viên mới"):
@@ -195,23 +230,24 @@ def main():
             # Form để chỉnh sửa thành viên
             if "edit_member" in st.session_state and st.session_state.edit_member:
                 member_id = st.session_state.edit_member
-                member = family_data["members"][member_id]
-                
-                st.subheader(f"Chỉnh sửa thông tin của {member['name']}")
-                
-                with st.form("edit_member_form"):
-                    edit_name = st.text_input("Tên:", value=member["name"])
-                    edit_relationship = st.text_input("Quan hệ:", value=member["relationship"])
-                    edit_age = st.number_input("Tuổi:", min_value=0, max_value=120, value=member["age"])
-                    edit_preferences = st.text_area("Sở thích:", value="\n".join(member["preferences"]))
-                    edit_restrictions = st.text_area("Dị ứng/Hạn chế:", value="\n".join(member["restrictions"]))
-                    edit_notes = st.text_area("Ghi chú:", value=member["notes"])
+                try:
+                    member = family_data["members"][member_id]
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        update_button = st.form_submit_button("Cập nhật")
-                    with col2:
-                        delete_button = st.form_submit_button("Xóa", type="primary")
+                    st.subheader(f"Chỉnh sửa thông tin của {member.get('name', 'Thành viên')}")
+                    
+                    with st.form("edit_member_form"):
+                        edit_name = st.text_input("Tên:", value=member.get("name", ""))
+                        edit_relationship = st.text_input("Quan hệ:", value=member.get("relationship", ""))
+                        edit_age = st.number_input("Tuổi:", min_value=0, max_value=120, value=member.get("age", 0))
+                        edit_preferences = st.text_area("Sở thích:", value="\n".join(member.get("preferences", [])))
+                        edit_restrictions = st.text_area("Dị ứng/Hạn chế:", value="\n".join(member.get("restrictions", [])))
+                        edit_notes = st.text_area("Ghi chú:", value=member.get("notes", ""))
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            update_button = st.form_submit_button("Cập nhật")
+                        with col2:
+                            delete_button = st.form_submit_button("Xóa", type="primary")
                     
                     if update_button:
                         # Cập nhật thông tin
