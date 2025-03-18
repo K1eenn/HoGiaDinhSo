@@ -58,17 +58,17 @@ def load_family_data():
 def generate_question_suggestions(member, client=None):
     suggestions = []
     
-    # Nếu không có thông tin thành viên, trả về câu hỏi mặc định
+    # Nếu không có thông tin thành viên, trả về câu hỏi thông tin mặc định
     if not member or "interests" not in member or not member["interests"]:
         return [
-            "Bạn muốn biết thêm thông tin gì hôm nay?",
-            "Có vấn đề gì tôi có thể giúp đỡ?",
-            "Bạn có dự định gì cho ngày hôm nay?",
-            "Bạn muốn tìm hiểu về chủ đề nào?",
-            "Có hoạt động gia đình nào bạn đang lên kế hoạch?",
-            "Bạn đang quan tâm đến vấn đề gì?",
-            "Bạn muốn tôi gợi ý món ăn, hoạt động hay thông tin gì?",
-            "Có chủ đề cụ thể nào bạn muốn thảo luận hôm nay?"
+            "Thời tiết hôm nay",
+            "Tin tức nổi bật trong ngày",
+            "Kết quả bóng đá mới nhất",
+            "Giá vàng hiện tại",
+            "Phim mới chiếu rạp tuần này", 
+            "Top 10 bài hát thịnh hành",
+            "Công thức nấu ăn đơn giản",
+            "Sự kiện cuối tuần tại địa phương"
         ]
     
     # Nếu có API client, tạo câu hỏi động từ GPT
@@ -114,105 +114,112 @@ def generate_question_suggestions(member, client=None):
 # Hàm tạo câu hỏi dự phòng khi không thể sử dụng API
 def create_fallback_questions(member, count=5):
     suggestions = []
-    common_questions = {
+    information_questions = {
         "thể thao": [
-            "Kết quả cúp châu Âu hôm nay là gì?",
-            "Thông tin mới nhất về chuyển nhượng cầu thủ?",
-            "Lịch thi đấu bóng đá trong tuần này?",
-            "Bảng xếp hạng Ngoại hạng Anh hiện tại?",
-            "Ai đang dẫn đầu giải Grand Slam tennis năm nay?",
-            "Kết quả trận đấu giữa đội tuyển Việt Nam?"
+            "Kết quả cúp châu Âu hôm nay",
+            "Thông tin mới nhất về giải Ngoại hạng Anh",
+            "Lịch thi đấu bóng đá tuần này",
+            "Bảng xếp hạng La Liga hiện tại",
+            "Chuyển nhượng cầu thủ mới nhất"
         ],
         "nấu ăn": [
-            "Công thức làm bánh mì homemade?",
-            "Cách nấu phở bò truyền thống?",
-            "Bí quyết làm sushi tại nhà?",
-            "Công thức làm bánh trung thu nhân thập cẩm?",
-            "Menu đồ ăn healthy trong 7 ngày?"
+            "Công thức làm bánh chocolate",
+            "Cách làm món phở gà truyền thống",
+            "Top 5 món ăn dễ làm cho bữa tối",
+            "Món tráng miệng từ trái cây mùa hè",
+            "Công thức nấu lẩu Thái chua cay"
         ],
         "đọc sách": [
-            "Top 10 sách bán chạy nhất tháng này?",
-            "Sách mới của tác giả Nguyễn Nhật Ánh?",
-            "Tóm tắt tiểu thuyết 'Trăm năm cô đơn'?",
-            "Những cuốn sách về tài chính cá nhân hay nhất?"
+            "Top sách bán chạy tháng này",
+            "Thông tin về tác giả Haruki Murakami",
+            "Giới thiệu tiểu thuyết mới xuất bản",
+            "Sách hay về phát triển bản thân",
+            "Tóm tắt tiểu thuyết nổi tiếng"
         ],
         "du lịch": [
-            "Chi phí du lịch Đà Nẵng 3 ngày 2 đêm?",
-            "Thời tiết ở Đà Lạt tháng này thế nào?",
-            "Kinh nghiệm du lịch Phú Quốc tự túc?",
-            "Những địa điểm du lịch mới nổi ở Việt Nam?"
+            "Điểm đến du lịch nổi tiếng ở Việt Nam",
+            "Kinh nghiệm du lịch tiết kiệm cho gia đình",
+            "Thông tin về visa du lịch Nhật Bản",
+            "Giá vé máy bay đi châu Âu mùa này",
+            "Các resort tốt nhất cho gia đình có trẻ nhỏ"
         ],
         "âm nhạc": [
-            "Album mới nhất của Sơn Tùng MTP?",
-            "Lịch concert của các nghệ sĩ tại Việt Nam?",
-            "Top 10 bài hát đang thịnh hành trên Spotify?",
-            "Thông tin về giải thưởng Grammy năm nay?"
+            "Top 10 bài hát đang thịnh hành",
+            "Thông tin về concert sắp diễn ra",
+            "Album mới ra mắt tháng này",
+            "Tiểu sử ca sĩ nổi tiếng",
+            "Lịch biểu diễn nhạc sống cuối tuần này"
         ],
         "công nghệ": [
-            "So sánh iPhone 15 Pro và Samsung S24 Ultra?",
-            "Mẫu laptop mới nhất của Apple?",
-            "Thông tin về công nghệ AI trong y tế?",
-            "Cách bảo vệ dữ liệu cá nhân trên điện thoại?"
+            "Thông tin về iPhone mới nhất",
+            "So sánh các mẫu laptop gaming",
+            "Tin tức mới về trí tuệ nhân tạo",
+            "Đánh giá tai nghe không dây tốt nhất",
+            "Bảng giá điện thoại Android cao cấp"
         ],
         "làm vườn": [
-            "Cách trồng rau sạch trong nhà phố?",
-            "Loại cây cảnh dễ chăm sóc trong nhà?",
-            "Cách xử lý sâu bệnh trên cây hoa hồng?",
-            "Lịch trồng rau theo mùa tại Việt Nam?"
+            "Cách trồng cây ăn quả trong chậu",
+            "Hướng dẫn chăm sóc cây cảnh trong nhà",
+            "Thông tin về phân bón hữu cơ tốt nhất",
+            "Lịch trồng rau theo mùa",
+            "Cách phòng trừ sâu bệnh tự nhiên"
         ],
-        "phim ảnh": [
-            "Phim Việt Nam mới ra rạp tháng này?",
-            "Top phim Netflix đang hot?",
-            "Lịch chiếu phim Marvel sắp tới?",
-            "Đánh giá về phim 'Nhà bà Nữ'?"
+        "tài chính": [
+            "Tỷ giá ngoại tệ hôm nay",
+            "Cập nhật giá vàng mới nhất",
+            "Dự báo thị trường chứng khoán tuần tới",
+            "So sánh lãi suất ngân hàng hiện tại",
+            "Hướng dẫn đầu tư cho người mới bắt đầu"
         ],
         "giáo dục": [
-            "Lịch thi tốt nghiệp THPT năm nay?",
-            "Thông tin về các trường đại học top đầu Việt Nam?",
-            "Kinh nghiệm ôn thi đại học hiệu quả?",
-            "Các khóa học online chất lượng về lập trình?"
+            "Thông tin tuyển sinh đại học năm nay",
+            "Các khóa học online được đánh giá cao",
+            "Danh sách học bổng cho học sinh THPT",
+            "Lịch thi IELTS/TOEFL trong tháng",
+            "So sánh các phương pháp giáo dục trẻ em"
         ],
-        "sức khỏe": [
-            "Cách phòng tránh bệnh cúm mùa?",
-            "Lịch tiêm vaccine cho trẻ em?",
-            "Chế độ ăn giảm cân khoa học?",
-            "Cách chăm sóc người già trong mùa lạnh?"
+        "phim ảnh": [
+            "Phim mới chiếu rạp tuần này",
+            "Đánh giá phim bom tấn mới nhất",
+            "Lịch phát sóng series nổi tiếng",
+            "Thông tin về đề cử giải Oscar",
+            "Phim hay trên Netflix tháng này"
         ]
     }
     
-    # Câu hỏi liên quan đến thông tin thời sự và cập nhật
+    # Câu hỏi thông tin chung
     general_info_questions = [
-        "Tin tức nổi bật trong nước hôm nay?",
-        "Giá vàng hiện tại như thế nào?",
-        "Tỷ giá USD/VND hôm nay?",
-        "Dự báo thời tiết cuối tuần này?",
-        "Tình hình giao thông tại Hà Nội/TP.HCM?",
-        "Lịch cắt điện trong khu vực hôm nay?",
-        "Kết quả xổ số miền Bắc/Trung/Nam hôm qua?",
-        "Thông tin về chính sách mới của chính phủ?",
-        "Giá xăng dầu mới nhất?",
-        "Lịch nghỉ lễ tết sắp tới?"
+        "Dự báo thời tiết cuối tuần này",
+        "Tin tức nổi bật trong ngày",
+        "Sự kiện văn hóa sắp diễn ra",
+        "Thông tin về dịch vụ y tế gần đây",
+        "Giá cả thực phẩm thị trường hiện nay",
+        "Thông tin giao thông giờ cao điểm",
+        "Tổng hợp sự kiện cuối tuần tại địa phương",
+        "Lịch nghỉ lễ sắp tới",
+        "Thông tin về các hoạt động cho trẻ em",
+        "Khuyến mãi mua sắm đang diễn ra"
     ]
     
     # Lấy câu hỏi dựa trên sở thích
     for interest in member["interests"]:
         interest_lower = interest.lower()
-        # Tìm chủ đề gần nhất trong danh sách common_questions
+        # Tìm chủ đề gần nhất trong danh sách thông tin
         matched_topic = None
-        for topic in common_questions:
+        for topic in information_questions:
             if topic in interest_lower or interest_lower in topic:
                 matched_topic = topic
                 break
         
         # Nếu tìm thấy chủ đề phù hợp, thêm câu hỏi liên quan
         if matched_topic:
-            suggestions.extend(common_questions[matched_topic])
+            suggestions.extend(information_questions[matched_topic])
         else:
-            # Nếu không tìm thấy, tạo câu hỏi chung cho sở thích đó
-            suggestions.append(f"Thông tin mới nhất về {interest}?")
-            suggestions.append(f"Top 5 sự kiện liên quan đến {interest} gần đây?")
+            # Nếu không tìm thấy, tạo câu hỏi thông tin chung cho sở thích đó
+            suggestions.append(f"Thông tin mới nhất về {interest}")
+            suggestions.append(f"Top 5 điều thú vị về {interest}")
     
-    # Bổ sung thêm câu hỏi thông tin chung
+    # Bổ sung thêm câu hỏi thông tin chung nếu cần
     import random
     random.shuffle(general_info_questions)
     suggestions.extend(general_info_questions)
@@ -249,7 +256,7 @@ def get_image_base64(image_raw):
     return base64.b64encode(img_byte).decode('utf-8')
 
 # Hàm gửi tin nhắn và nhận phản hồi từ AI
-def stream_llm_response(api_key, member):
+def stream_llm_response(api_key, member, include_image=False, image_url=None):
     # Cập nhật cache ngày hôm nay để AI biết ngày hiện tại
     from datetime import datetime
     today = datetime.now().strftime("%d/%m/%Y")
@@ -259,7 +266,27 @@ def stream_llm_response(api_key, member):
     system_message = create_system_message(member)
     system_message += f"\nHôm nay là {day_of_week}, ngày {today}."
     
-    messages = [{"role": "system", "content": system_message}] + st.session_state.messages
+    # Sao chép tin nhắn để không ảnh hưởng đến session_state
+    messages = [{"role": "system", "content": system_message}]
+    
+    # Thêm hình ảnh vào cuối chuỗi tin nhắn nếu có
+    if include_image and image_url:
+        # Thêm tin nhắn cuối cùng từ người dùng nếu có
+        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+            last_user_message = st.session_state.messages[-1]["content"]
+            messages.append({"role": "user", "content": last_user_message})
+        
+        # Thêm hình ảnh
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Phân tích hình ảnh này:"},
+                {"type": "image_url", "image_url": {"url": image_url}}
+            ]
+        })
+    else:
+        # Thêm tất cả tin nhắn hiện có
+        messages.extend(st.session_state.messages)
     
     client = OpenAI(api_key=api_key)
     response_message = ""
@@ -275,10 +302,12 @@ def stream_llm_response(api_key, member):
         response_message += chunk_text
         yield chunk_text
 
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": response_message
-    })
+    # Chỉ lưu phản hồi vào lịch sử khi không phải xử lý hình ảnh riêng
+    if not include_image or not image_url:
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "content": response_message
+        })
 
 def main():
     # --- Cấu hình trang ---
@@ -313,6 +342,12 @@ def main():
         margin-bottom: 1rem;
         display: flex;
     }
+    .media-tools {
+        border: 1px solid #f0f2f6;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -329,8 +364,28 @@ def main():
     
     if "current_member" not in st.session_state:
         st.session_state.current_member = None
+        
+    if "show_image_analysis" not in st.session_state:
+        st.session_state.show_image_analysis = False
+        
+    if "image_url" not in st.session_state:
+        st.session_state.image_url = None
 
-    # --- Thanh bên (Sidebar) ---
+    # --- Tiêu đề ---
+    st.markdown("<h1 style='text-align: center; color: #6ca395;'>👪 <i>Trợ lý Gia đình</i> 💬</h1>", unsafe_allow_html=True)
+    
+    # Tải dữ liệu gia đình
+    if "family_data" not in st.session_state:
+        st.session_state.family_data = load_family_data()
+    
+    # Khởi tạo biến session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    
+    if "current_member" not in st.session_state:
+        st.session_state.current_member = None
+
+    # --- Sidebar ---
     with st.sidebar:
         cols_keys = st.columns(1)
         with cols_keys[0]:
@@ -356,6 +411,9 @@ def main():
             for member in st.session_state.family_data["members"]:
                 if member["name"] == selected_member:
                     st.session_state.current_member = member
+                    # Khi đổi thành viên, làm mới gợi ý câu hỏi
+                    if "question_suggestions" in st.session_state:
+                        st.session_state.pop("question_suggestions")
                     break
         
         # Thêm thành viên mới
@@ -528,23 +586,6 @@ def main():
             
             audio_prompt = transcript.text
             
-            if audio_prompt:
-                # Thêm tin nhắn vào lịch sử
-                st.session_state.messages.append({"role": "user", "content": audio_prompt})
-                
-                # Hiển thị tin nhắn người dùng
-                with st.chat_message("user"):
-                    st.write(audio_prompt)
-                
-                # Hiển thị phản hồi của AI
-                with st.chat_message("assistant"):
-                    st.write_stream(stream_llm_response(
-                        api_key=openai_api_key,
-                        member=st.session_state.current_member
-                    ))
-                
-                st.experimental_rerun()
-
     # --- Chat input ---
     if prompt := st.chat_input("Xin chào! Tôi có thể giúp gì cho bạn?"):
         # Thêm tin nhắn vào lịch sử
