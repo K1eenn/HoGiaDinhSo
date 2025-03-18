@@ -11,6 +11,18 @@ import datetime
 
 dotenv.load_dotenv()
 
+# Đường dẫn file lưu trữ dữ liệu
+FAMILY_DATA_FILE = "family_data.json"
+EVENTS_DATA_FILE = "events_data.json"
+NOTES_DATA_FILE = "notes_data.json"
+
+# Thiết lập log để debug
+import logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                   handlers=[logging.StreamHandler()])
+logger = logging.getLogger('family_assistant')
+
 # Chỉ sử dụng một mô hình duy nhất
 openai_model = "gpt-4o-mini"
 
