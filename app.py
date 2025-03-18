@@ -301,6 +301,7 @@ def add_family_member(details):
         "name": details.get("name", ""),
         "age": details.get("age", ""),
         "preferences": details.get("preferences", {}),
+        "allergies": details.get("allergies", []),  # Thêm trường dị ứng
         "added_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     save_data(FAMILY_DATA_FILE, family_data)
@@ -315,6 +316,58 @@ def update_preference(details):
             family_data[member_id]["preferences"] = {}
         family_data[member_id]["preferences"][preference_key] = preference_value
         save_data(FAMILY_DATA_FILE, family_data)
+
+# Hàm mới để cập nhật thông tin dị ứng
+def update_allergies(member_id, allergies):
+    if member_id in family_data:
+        family_data[member_id]["allergies"] = allergies
+        save_data(FAMILY_DATA_FILE, family_data)
+        return True
+    return False
+
+# Hàm tạo câu hỏi đề xuất dựa trên thông tin thành viên
+def generate_suggested_questions(member_id=None):
+    questions = []
+    
+    # Câu hỏi chung nếu không chọn thành viên cụ thể
+    if not member_id:
+        return [
+            "Thêm sự kiện ăn tối vào ngày mai",
+            "Thêm kế hoạch du lịch cuối tuần này",
+            "Thêm lịch đưa con đi học vào 7h30 sáng mai",
+            "Nhắc tôi mua sữa vào thứ 6",
+            "Thêm sinh nhật của mẹ vào ngày 15/5"
+        ]
+    
+    # Lấy thông tin thành viên
+    member = family_data.get(member_id)
+    if not member:
+        return questions
+    
+    name = member.get("name", "")
+    preferences = member.get("preferences", {})
+    allergies = member.get("allergies", [])
+    
+    # Tạo câu hỏi dựa trên sở thích
+    if preferences.get("food"):
+        questions.append(f"Có món nào ngon làm từ {preferences.get('food')} không?")
+    
+    if preferences.get("hobby"):
+        questions.append(f"Tìm hoạt động liên quan đến {preferences.get('hobby')} gần đây")
+        questions.append(f"Thêm sự kiện {preferences.get('hobby')} vào cuối tuần")
+    
+    # Câu hỏi liên quan đến dị ứng
+    if allergies:
+        allergies_str = ", ".join(allergies)
+        questions.append(f"Món ăn nào an toàn cho người bị dị ứng {allergies_str}?")
+        questions.append(f"Thay thế cho {allergies_str} trong nấu ăn")
+    
+    # Thêm các câu hỏi cá nhân hóa khác
+    questions.append(f"Thêm sinh nhật của {name}")
+    questions.append(f"Thêm sự kiện đặc biệt cho {name}")
+    questions.append(f"Gợi ý quà tặng cho {name}")
+    
+    return questions
 
 def add_event(details):
     """Thêm một sự kiện mới vào danh sách sự kiện"""
@@ -406,9 +459,17 @@ def main():
                 hobby_pref = st.text_input("Sở thích")
                 color_pref = st.text_input("Màu yêu thích")
                 
+                # Thêm trường dị ứng
+                st.write("Dị ứng:")
+                allergies = st.text_area("Nhập các dị ứng (phân cách bằng dấu phẩy)", 
+                                       help="Ví dụ: tôm, cua, hải sản, đậu phộng, ...")
+                
                 add_member_submitted = st.form_submit_button("Thêm")
                 
                 if add_member_submitted and member_name:
+                    # Tách danh sách dị ứng
+                    allergies_list = [item.strip() for item in allergies.split(",") if item.strip()]
+                    
                     member_id = str(len(family_data) + 1)
                     family_data[member_id] = {
                         "name": member_name,
@@ -418,6 +479,7 @@ def main():
                             "hobby": hobby_pref,
                             "color": color_pref
                         },
+                        "allergies": allergies_list,
                         "added_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
                     save_data(FAMILY_DATA_FILE, family_data)
@@ -470,10 +532,19 @@ def main():
                     new_hobby = st.text_input("Sở thích", prefs.get("hobby", ""))
                     new_color = st.text_input("Màu yêu thích", prefs.get("color", ""))
                     
+                    # Dị ứng
+                    st.write("Dị ứng:")
+                    allergies_text = ", ".join(member.get("allergies", []))
+                    new_allergies = st.text_area("Nhập các dị ứng (phân cách bằng dấu phẩy)", allergies_text,
+                                                help="Ví dụ: tôm, cua, hải sản, đậu phộng, ...")
+                    
                     save_edits = st.form_submit_button("Lưu")
                     cancel_edits = st.form_submit_button("Hủy")
                     
                     if save_edits:
+                        # Tách danh sách dị ứng
+                        allergies_list = [item.strip() for item in new_allergies.split(",") if item.strip()]
+                        
                         family_data[member_id]["name"] = new_name
                         family_data[member_id]["age"] = new_age
                         family_data[member_id]["preferences"] = {
@@ -481,6 +552,8 @@ def main():
                             "hobby": new_hobby,
                             "color": new_color
                         }
+                        family_data[member_id]["allergies"] = allergies_list
+                        
                         save_data(FAMILY_DATA_FILE, family_data)
                         st.session_state.editing_member = None
                         st.success("Đã cập nhật thông tin!")
@@ -701,6 +774,83 @@ def main():
                         st.write(content["text"])
                     elif content["type"] == "image_url":      
                         st.image(content["image_url"]["url"])
+
+        # Thêm giao diện đề xuất câu hỏi dưới vùng chat
+        st.write("### 💡 Câu hỏi đề xuất")
+        
+        # Chọn thành viên để xem câu hỏi đề xuất cá nhân hóa
+        question_cols = st.columns([2, 3])
+        with question_cols[0]:
+            # Tạo danh sách thành viên gia đình
+            member_options = {"Tất cả": None}
+            for member_id, member in family_data.items():
+                if isinstance(member, dict) and member.get("name"):
+                    member_options[member.get("name")] = member_id
+            
+            selected_member_name = st.selectbox(
+                "Đề xuất cho:",
+                options=list(member_options.keys()),
+                index=0
+            )
+            selected_member_id = member_options[selected_member_name]
+        
+        # Hiển thị các câu hỏi đề xuất
+        suggested_questions = generate_suggested_questions(selected_member_id)
+        
+        if not suggested_questions:
+            st.info("Không có câu hỏi đề xuất cho thành viên này.")
+        else:
+            for i, question in enumerate(suggested_questions[:5]):  # Giới hạn 5 câu hỏi
+                if st.button(f"🔍 {question}", key=f"question_{i}", use_container_width=True):
+                    # Khi người dùng nhấn vào câu hỏi, thêm nó vào vùng chat
+                    st.session_state.messages.append({
+                        "role": "user", 
+                        "content": [{
+                            "type": "text",
+                            "text": question,
+                        }]
+                    })
+                    
+                    # Tự động xử lý câu trả lời từ trợ lý
+                    with st.chat_message("assistant"):
+                        system_prompt = f"""
+                        Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
+                        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn phải thực hiện ngay các hành động sau:
+                        
+                        1. Thêm thông tin về thành viên gia đình (tên, tuổi, sở thích)
+                        2. Cập nhật sở thích của thành viên gia đình
+                        3. Thêm, cập nhật, hoặc xóa sự kiện
+                        4. Thêm ghi chú
+                        5. Phân tích hình ảnh người dùng đưa ra (món ăn, hoạt động gia đình, v.v.)
+                        
+                        QUAN TRỌNG: Để bảo vệ sức khỏe, luôn kiểm tra thông tin dị ứng khi đề xuất món ăn.
+                        
+                        Thông tin dị ứng của các thành viên:
+                        {json.dumps({member_id: member.get("allergies", []) for member_id, member in family_data.items() if isinstance(member, dict)}, ensure_ascii=False)}
+                        
+                        QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
+                        
+                        - Thêm thành viên: ##ADD_FAMILY_MEMBER:{{"name":"Tên","age":"Tuổi","preferences":{{"food":"Món ăn","hobby":"Sở thích","color":"Màu sắc"}},"allergies":["Dị ứng1", "Dị ứng2"]}}##
+                        - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở_thích","value":"giá_trị"}}##
+                        - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
+                        - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
+                        - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
+                        - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
+                        
+                        Hôm nay là {datetime.datetime.now().strftime("%d/%m/%Y")}.
+                        
+                        Thông tin hiện tại về gia đình:
+                        {json.dumps(family_data, ensure_ascii=False, indent=2)}
+                        
+                        Sự kiện sắp tới:
+                        {json.dumps(events_data, ensure_ascii=False, indent=2)}
+                        
+                        Ghi chú:
+                        {json.dumps(notes_data, ensure_ascii=False, indent=2)}
+                        """
+                        st.write_stream(stream_llm_response(api_key=openai_api_key, system_prompt=system_prompt))
+                    
+                    st.rerun()
 
         # Thêm chức năng hình ảnh
         with st.sidebar:
