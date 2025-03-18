@@ -162,7 +162,7 @@ def add_event_from_chat(event_info, family_data):
     
     # Tạo thông báo xác nhận
     confirmation = f"✅ Đã thêm sự kiện: {title} vào ngày {date_str}."
-    return confirmationimport streamlit as st
+    return confirmation
 from openai import OpenAI
 import dotenv
 import os
