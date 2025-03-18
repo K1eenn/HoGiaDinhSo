@@ -1,3 +1,106 @@
+import streamlit as st
+from openai import OpenAI
+import dotenv
+import os
+from PIL import Image
+from audio_recorder_streamlit import audio_recorder
+import base64
+from io import BytesIO
+import json
+import datetime
+import re
+from datetime import datetime, timedelta
+
+# Tải các biến môi trường từ file .env
+dotenv.load_dotenv()
+
+# Chỉ sử dụng mô hình GPT-4o-mini
+openai_model = "gpt-4o-mini"
+
+# Hàm để lưu và tải dữ liệu gia đình
+def save_family_data(data):
+    with open("family_data.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def load_family_data():
+    try:
+        with open("family_data.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Chuyển đổi members thành dictionary nếu nó là list
+            if isinstance(data["members"], list):
+                members_dict = {}
+                for i, member in enumerate(data["members"]):
+                    members_dict[str(i+1)] = member
+                data["members"] = members_dict
+            elif "members" not in data:
+                data["members"] = {}
+                
+            # Đảm bảo mỗi thành viên có đầy đủ các trường cần thiết
+            for member_id, member in data["members"].items():
+                if not isinstance(member, dict):
+                    # Nếu thành viên không phải là dictionary, tạo một dictionary mới
+                    data["members"][member_id] = {
+                        "name": str(member) if member else f"Thành viên {member_id}",
+                        "relationship": "Không xác định",
+                        "age": 0,
+                        "preferences": [],
+                        "restrictions": [],
+                        "notes": ""
+                    }
+                    continue
+                
+                # Đảm bảo tất cả các trường cần thiết đều tồn tại
+                if "name" not in member or not member["name"]:
+                    member["name"] = f"Thành viên {member_id}"
+                if "relationship" not in member:
+                    member["relationship"] = "Không xác định"
+                if "age" not in member:
+                    member["age"] = 0
+                if "preferences" not in member or not isinstance(member["preferences"], list):
+                    member["preferences"] = []
+                if "restrictions" not in member or not isinstance(member["restrictions"], list):
+                    member["restrictions"] = []
+                if "notes" not in member:
+                    member["notes"] = ""
+            
+            # Đảm bảo các khóa khác tồn tại
+            if "events" not in data:
+                data["events"] = []
+            if "notes" not in data:
+                data["notes"] = []
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Trả về cấu trúc dữ liệu mẫu nếu file không tồn tại hoặc trống
+        return {
+            "members": {},
+            "events": [],
+            "notes": []
+        }
+
+# Hàm để truy xuất thông tin thành viên gia đình cho AI
+def get_family_context():
+    data = load_family_data()
+    context = "Thông tin về các thành viên trong gia đình:\n\n"
+    
+    for member_id, member in data["members"].items():
+        context += f"- {member.get('name', 'Không tên')} ({member.get('relationship', 'Không xác định')}, {member.get('age', 0)} tuổi)\n"
+        context += f"  + Sở thích: {', '.join(member.get('preferences', []))}\n"
+        context += f"  + Dị ứng/Hạn chế: {', '.join(member.get('restrictions', []))}\n"
+        context += f"  + Ghi chú: {member.get('notes', '')}\n\n"
+    
+    # Thêm các sự kiện sắp tới
+    context += "Các sự kiện sắp tới:\n"
+    today = datetime.now().date()
+    upcoming_events = [e for e in data["events"] 
+                      if datetime.strptime(e["date"], "%Y-%m-%d").date() >= today]
+    
+    for event in sorted(upcoming_events, key=lambda x: x["date"]):
+        event_date = datetime.strptime(event["date"], "%Y-%m-%d").date()
+        days_remaining = (event_date - today).days
+        context += f"- {event['title']} ({event['date']}): {event['description']} - {days_remaining} ngày nữa\n"
+    
+    return context
+
 # Hàm để phân tích tin nhắn và thêm sự kiện từ trò chuyện
 def parse_event_from_message(message):
     """
@@ -49,9 +152,6 @@ def parse_event_from_message(message):
     result["title"] = title.strip()
     
     # Trích xuất ngày - tìm các pattern ngày tháng
-    import re
-    from datetime import datetime, timedelta
-    
     # Tìm kiểu dd/mm/yyyy hoặc dd-mm-yyyy
     date_patterns = r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})'
     date_matches = re.findall(date_patterns, message)
@@ -142,7 +242,6 @@ def add_event_from_chat(event_info, family_data):
     if event_info["date"]:
         date_str = event_info["date"].strftime("%Y-%m-%d")
     else:
-        from datetime import datetime
         date_str = datetime.now().strftime("%Y-%m-%d")
     
     # Chuẩn bị mô tả
@@ -163,105 +262,6 @@ def add_event_from_chat(event_info, family_data):
     # Tạo thông báo xác nhận
     confirmation = f"✅ Đã thêm sự kiện: {title} vào ngày {date_str}."
     return confirmation
-from openai import OpenAI
-import dotenv
-import os
-from PIL import Image
-from audio_recorder_streamlit import audio_recorder
-import base64
-from io import BytesIO
-import json
-import datetime
-
-# Tải các biến môi trường từ file .env
-dotenv.load_dotenv()
-
-# Chỉ sử dụng mô hình GPT-4o-mini
-openai_model = "gpt-4o-mini"
-
-# Hàm để lưu và tải dữ liệu gia đình
-def save_family_data(data):
-    with open("family_data.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def load_family_data():
-    try:
-        with open("family_data.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-            # Chuyển đổi members thành dictionary nếu nó là list
-            if isinstance(data["members"], list):
-                members_dict = {}
-                for i, member in enumerate(data["members"]):
-                    members_dict[str(i+1)] = member
-                data["members"] = members_dict
-            elif "members" not in data:
-                data["members"] = {}
-                
-            # Đảm bảo mỗi thành viên có đầy đủ các trường cần thiết
-            for member_id, member in data["members"].items():
-                if not isinstance(member, dict):
-                    # Nếu thành viên không phải là dictionary, tạo một dictionary mới
-                    data["members"][member_id] = {
-                        "name": str(member) if member else f"Thành viên {member_id}",
-                        "relationship": "Không xác định",
-                        "age": 0,
-                        "preferences": [],
-                        "restrictions": [],
-                        "notes": ""
-                    }
-                    continue
-                
-                # Đảm bảo tất cả các trường cần thiết đều tồn tại
-                if "name" not in member or not member["name"]:
-                    member["name"] = f"Thành viên {member_id}"
-                if "relationship" not in member:
-                    member["relationship"] = "Không xác định"
-                if "age" not in member:
-                    member["age"] = 0
-                if "preferences" not in member or not isinstance(member["preferences"], list):
-                    member["preferences"] = []
-                if "restrictions" not in member or not isinstance(member["restrictions"], list):
-                    member["restrictions"] = []
-                if "notes" not in member:
-                    member["notes"] = ""
-            
-            # Đảm bảo các khóa khác tồn tại
-            if "events" not in data:
-                data["events"] = []
-            if "notes" not in data:
-                data["notes"] = []
-            return data
-    except (FileNotFoundError, json.JSONDecodeError):
-        # Trả về cấu trúc dữ liệu mẫu nếu file không tồn tại hoặc trống
-        return {
-            "members": {},
-            "events": [],
-            "notes": []
-        }
-
-# Hàm để truy xuất thông tin thành viên gia đình cho AI
-def get_family_context():
-    data = load_family_data()
-    context = "Thông tin về các thành viên trong gia đình:\n\n"
-    
-    for member_id, member in data["members"].items():
-        context += f"- {member['name']} ({member['relationship']}, {member['age']} tuổi)\n"
-        context += f"  + Sở thích: {', '.join(member['preferences'])}\n"
-        context += f"  + Dị ứng/Hạn chế: {', '.join(member['restrictions'])}\n"
-        context += f"  + Ghi chú: {member['notes']}\n\n"
-    
-    # Thêm các sự kiện sắp tới
-    context += "Các sự kiện sắp tới:\n"
-    today = datetime.datetime.now().date()
-    upcoming_events = [e for e in data["events"] 
-                      if datetime.datetime.strptime(e["date"], "%Y-%m-%d").date() >= today]
-    
-    for event in sorted(upcoming_events, key=lambda x: x["date"]):
-        event_date = datetime.datetime.strptime(event["date"], "%Y-%m-%d").date()
-        days_remaining = (event_date - today).days
-        context += f"- {event['title']} ({event['date']}): {event['description']} - {days_remaining} ngày nữa\n"
-    
-    return context
 
 # Function để chuyển file ảnh sang base64
 def get_image_base64(image_raw):
@@ -270,7 +270,7 @@ def get_image_base64(image_raw):
     img_byte = buffered.getvalue()
     return base64.b64encode(img_byte).decode('utf-8')
 
-    # Function để query và stream phản hồi từ GPT-4o-mini
+# Function để query và stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key=None):
     response_message = ""
     
@@ -336,7 +336,7 @@ def stream_llm_response(api_key=None):
         ]})
 
 def main():
-    # Inicializar variables de estado de sesión
+    # Khởi tạo biến session state
     if "prev_speech_hash" not in st.session_state:
         st.session_state.prev_speech_hash = None
     if "edit_member" not in st.session_state:
@@ -471,34 +471,6 @@ def main():
                 except Exception as e:
                     st.error(f"Lỗi khi chỉnh sửa thành viên: {str(e)}")
                     st.session_state.edit_member = None
-                    
-                    if update_button:
-                        # Cập nhật thông tin
-                        family_data["members"][member_id] = {
-                            "name": edit_name,
-                            "relationship": edit_relationship,
-                            "age": edit_age,
-                            "preferences": [p.strip() for p in edit_preferences.split("\n") if p.strip()],
-                            "restrictions": [r.strip() for r in edit_restrictions.split("\n") if r.strip()],
-                            "notes": edit_notes
-                        }
-                        
-                        # Lưu dữ liệu
-                        save_family_data(family_data)
-                        st.success(f"Đã cập nhật thông tin của {edit_name}!")
-                        st.session_state.edit_member = None
-                        st.rerun()
-                    
-                    if delete_button:
-                        # Xóa thành viên
-                        name = family_data["members"][member_id]["name"]
-                        del family_data["members"][member_id]
-                        
-                        # Lưu dữ liệu
-                        save_family_data(family_data)
-                        st.success(f"Đã xóa {name} khỏi gia đình!")
-                        st.session_state.edit_member = None
-                        st.rerun()
         
         with tab2:
             # Quản lý các sự kiện gia đình
@@ -526,11 +498,11 @@ def main():
             # Hiển thị các sự kiện sắp tới
             if family_data["events"]:
                 st.subheader("Sự kiện sắp tới:")
-                today = datetime.datetime.now().date()
+                today = datetime.now().date()
                 events = sorted(family_data["events"], key=lambda x: x["date"])
                 
                 for i, event in enumerate(events):
-                    event_date = datetime.datetime.strptime(event["date"], "%Y-%m-%d").date()
+                    event_date = datetime.strptime(event["date"], "%Y-%m-%d").date()
                     days_remaining = (event_date - today).days
                     
                     # Hiển thị ngày còn lại
@@ -564,7 +536,7 @@ def main():
                     # Thêm ghi chú mới với thời gian hiện tại
                     family_data["notes"].append({
                         "content": note_content,
-                        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     })
                     
                     # Lưu dữ liệu
@@ -577,7 +549,7 @@ def main():
                 st.subheader("Ghi chú:")
                 for i, note in enumerate(reversed(family_data["notes"])):
                     st.markdown(f"**{note['timestamp']}**")
-                    st.markdown(note["content"])
+                    st.markdown(note['content'])
                     
                     # Nút xóa ghi chú
                     if st.button(f"Xóa", key=f"delete_note_{i}"):
@@ -690,6 +662,10 @@ def main():
         with col1:
             # Nhập tin nhắn
             if prompt := st.chat_input("Hỏi trợ lý gia đình..."):
+                # Kiểm tra xem có phải là thêm sự kiện không trước khi thêm vào tin nhắn
+                event_info = parse_event_from_message(prompt)
+                
+                # Thêm tin nhắn vào lịch sử
                 st.session_state.messages.append(
                     {
                         "role": "user", 
@@ -706,6 +682,10 @@ def main():
                 
                 # Phản hồi từ AI
                 with st.chat_message("assistant"):
+                    # Nếu là lệnh thêm sự kiện, thông báo đang xử lý
+                    if event_info["event_detected"]:
+                        st.info("Đang phân tích và thêm sự kiện...")
+                    
                     st.write_stream(stream_llm_response(api_key=openai_api_key))
 
 
