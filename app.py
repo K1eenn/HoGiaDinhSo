@@ -328,6 +328,7 @@ def update_allergies(member_id, allergies):
 # Hàm tạo câu hỏi đề xuất dựa trên thông tin thành viên
 def generate_suggested_questions(member_id=None):
     """Sinh câu hỏi đề xuất dựa trên thông tin và sở thích của thành viên gia đình"""
+    import random
     
     # Câu hỏi chung nếu không chọn thành viên cụ thể
     if not member_id:
@@ -349,37 +350,96 @@ def generate_suggested_questions(member_id=None):
     preferences = member.get("preferences", {}) if isinstance(member.get("preferences"), dict) else {}
     allergies = member.get("allergies", []) if isinstance(member.get("allergies"), list) else []
     
-    # Câu hỏi quản lý cơ bản
-    questions.append(f"Thêm sinh nhật của {name}")
-    questions.append(f"Thêm sự kiện đặc biệt cho {name}")
-    questions.append(f"Gợi ý quà tặng cho {name}")
+    # Các thành phần câu hỏi
+    question_prefixes = [
+        "Bạn biết gì về", "Thông tin về", "Tìm hiểu về", "Cho tôi biết về", 
+        "Tại sao", "Làm thế nào", "Khi nào", "Ai là người", 
+        "Top 10", "Xu hướng", "Có những", "Lịch sử của",
+        "Tương lai của", "Đánh giá về", "So sánh giữa", "Khám phá",
+        "Phân tích", "Giải thích", "Những điều thú vị về", "Bí mật về",
+        "Lợi ích của", "Tác hại của", "Cách để", "Hướng dẫn",
+        "Tại sao người ta thích", "Điều gì làm cho", "Tôi nên chọn", "Giới thiệu về",
+        "Sự khác biệt giữa", "Có đúng là", "Mới nhất về", "Phổ biến nhất về"
+    ]
     
-    # Tạo câu hỏi dựa trên sở thích món ăn
+    question_connectors = [
+        "trong", "ở", "vào", "cho", "với", "và", "hay", "hoặc",
+        "khi", "nếu", "so với", "thay vì", "hơn là", "đối với",
+        "liên quan đến", "dành cho", "tại", "bởi"
+    ]
+    
+    question_contexts = [
+        "hiện nay", "gần đây", "năm nay", "thời gian tới", "thế giới",
+        "Việt Nam", "khu vực", "của các chuyên gia", "trong lịch sử",
+        "trong tương lai", "theo nghiên cứu", "theo số liệu", "theo xu hướng",
+        "trong mùa này", "cho người mới bắt đầu", "cho người có kinh nghiệm",
+        "cho trẻ em", "cho người lớn", "vào mùa hè", "vào mùa đông",
+        "trong thập kỷ qua", "2024", "mọi thời đại", "đang làm mưa làm gió"
+    ]
+    
+    question_suffixes = [
+        "?", "là gì?", "như thế nào?", "ra sao?", "nhỉ?",
+        "vậy?", "phải không?", "đúng không?", "có phải không?", "nào tốt nhất?",
+        "nào phổ biến nhất?", "và tại sao?", "thế nào là tốt?",
+        "bạn có biết không?", "và lợi ích của nó?", "nên tránh điều gì?",
+        "được không?", "khó không?", "dễ học không?", "tốn kém không?"
+    ]
+    
+    # Tạo câu hỏi cơ bản về thành viên
+    base_questions = [
+        f"Thêm sinh nhật của {name}",
+        f"Gợi ý quà tặng cho {name}",
+        f"Thêm sự kiện đặc biệt cho {name}"
+    ]
+    questions.extend(base_questions)
+    
+    # Tạo câu hỏi linh động dựa trên sở thích - món ăn
     food_preference = preferences.get("food", "")
     if food_preference:
-        # Mẫu câu hỏi về món ăn
-        food_question_templates = [
-            f"Có món nào ngon làm từ {food_preference} không?",
-            f"Công thức làm món {food_preference} ngon nhất?",
-            f"Địa điểm ăn {food_preference} nổi tiếng?",
-            f"Cách chế biến {food_preference} đơn giản tại nhà?",
-            f"Lợi ích sức khỏe của {food_preference}?",
-            f"Xuất xứ và lịch sử của món {food_preference}?",
-            f"Cách kết hợp {food_preference} với các nguyên liệu khác?",
-            f"Các biến thể món ăn từ {food_preference} trên thế giới?",
-            f"{food_preference} có bao nhiêu calo?",
-            f"Cách bảo quản {food_preference} tốt nhất?"
-        ]
+        # Tách thành các từ khóa nếu có nhiều sở thích
+        food_keywords = [food_preference]
+        if " và " in food_preference:
+            food_keywords = food_preference.split(" và ")
+        elif "," in food_preference:
+            food_keywords = [h.strip() for h in food_preference.split(",")]
         
-        # Thêm 2-3 câu hỏi về món ăn vào danh sách
-        import random
-        food_questions = random.sample(food_question_templates, min(3, len(food_question_templates)))
-        questions.extend(food_questions)
+        for food in food_keywords:
+            food = food.strip()
+            if not food:
+                continue
+                
+            # Sinh câu hỏi ngẫu nhiên về món ăn
+            for _ in range(2):  # Tạo 2 câu hỏi cho mỗi sở thích món ăn
+                prefix = random.choice(question_prefixes)
+                context = random.choice(question_contexts) if random.random() > 0.3 else ""
+                suffix = random.choice(question_suffixes)
+                
+                # Xây dựng câu hỏi với cấu trúc ngẫu nhiên
+                if random.random() > 0.5:
+                    # Cấu trúc 1: Prefix + food + context + suffix
+                    question = f"{prefix} {food} {context} {suffix}".replace("  ", " ").strip()
+                else:
+                    # Cấu trúc 2: Cụm từ ngẫu nhiên
+                    food_phrases = [
+                        f"Món {food} ngon nhất {context}",
+                        f"Cách chế biến {food}",
+                        f"Nguồn gốc của {food}",
+                        f"{food} có lợi cho sức khỏe không",
+                        f"Thành phần dinh dưỡng trong {food}",
+                        f"Địa điểm ăn {food} nổi tiếng",
+                        f"Biến tấu món {food}",
+                        f"Cách bảo quản {food}",
+                        f"Kết hợp {food} với món nào ngon",
+                        f"Mùa nào thích hợp để ăn {food}"
+                    ]
+                    question = f"{random.choice(food_phrases)} {suffix}".replace("  ", " ").strip()
+                
+                questions.append(question)
     
-    # Tạo câu hỏi dựa trên sở thích hoạt động
+    # Tạo câu hỏi linh động dựa trên sở thích hoạt động
     hobby_preference = preferences.get("hobby", "")
     if hobby_preference:
-        # Chia nhỏ sở thích thành các từ khóa chính
+        # Tách thành các từ khóa nếu có nhiều sở thích
         hobby_keywords = [hobby_preference]
         if " và " in hobby_preference:
             hobby_keywords = hobby_preference.split(" và ")
@@ -391,70 +451,118 @@ def generate_suggested_questions(member_id=None):
             if not hobby:
                 continue
                 
-            # Mẫu câu hỏi chung cho mọi loại sở thích
-            hobby_templates = [
-                f"Thông tin mới nhất về {hobby}?",
-                f"Xu hướng {hobby} hiện nay?",
-                f"Các sự kiện {hobby} sắp tới?",
-                f"Người nổi tiếng trong lĩnh vực {hobby}?",
-                f"Cách bắt đầu tìm hiểu về {hobby}?",
-                f"Địa điểm tốt nhất để thưởng thức/tham gia {hobby}?",
-                f"Lịch sử phát triển của {hobby}?",
-                f"Tác động của {hobby} đến sức khỏe và đời sống?",
-                f"Cộng đồng {hobby} gần đây có gì mới?",
-                f"Làm thế nào để nâng cao kỹ năng {hobby}?",
-                f"Thiết bị/dụng cụ cần thiết cho {hobby}?",
-                f"Cuộc thi/giải đấu {hobby} đáng chú ý?",
-                f"Những người giỏi nhất về {hobby} hiện nay là ai?",
-                f"{hobby} đang có xu hướng gì trong năm nay?",
-                f"Tiến bộ công nghệ mới nhất liên quan đến {hobby}?"
-            ]
+            # Tạo câu hỏi sự kiện cho sở thích
+            questions.append(f"Thêm sự kiện {hobby} vào cuối tuần")
             
-            # Thêm 2-3 câu hỏi về sở thích vào danh sách
-            import random
-            selected_hobby_questions = random.sample(hobby_templates, min(3, len(hobby_templates)))
-            questions.extend(selected_hobby_questions)
-    
-    # Tạo câu hỏi dựa trên màu sắc yêu thích
-    color_preference = preferences.get("color", "")
-    if color_preference:
-        # Mẫu câu hỏi về màu sắc
-        color_templates = [
-            f"Ý nghĩa của màu {color_preference}?",
-            f"Cách phối đồ với màu {color_preference}?",
-            f"Trang trí nhà với màu {color_preference}?",
-            f"Tâm lý học về màu {color_preference}?",
-            f"Màu {color_preference} phản ánh tính cách gì?"
-        ]
-        
-        # Thêm 1-2 câu hỏi về màu sắc
-        import random
-        color_questions = random.sample(color_templates, min(2, len(color_templates)))
-        questions.extend(color_questions)
+            # Sinh câu hỏi ngẫu nhiên về sở thích
+            for _ in range(3):  # Tạo 3 câu hỏi cho mỗi sở thích
+                # Sinh câu hỏi với cấu trúc hoàn toàn ngẫu nhiên
+                if random.random() > 0.6:
+                    prefix = random.choice(question_prefixes)
+                    connector = random.choice(question_connectors) if random.random() > 0.5 else ""
+                    context = random.choice(question_contexts) if random.random() > 0.3 else ""
+                    suffix = random.choice(question_suffixes)
+                    
+                    # Tạo câu hỏi với cấu trúc ngẫu nhiên
+                    question_parts = [prefix, hobby]
+                    if connector:
+                        question_parts.append(connector)
+                    if context:
+                        question_parts.append(context)
+                    question_parts.append(suffix)
+                    
+                    question = " ".join(question_parts).replace("  ", " ").strip()
+                    questions.append(question)
+                else:
+                    # Tạo câu hỏi đặc thù cho từng lĩnh vực
+                    specific_templates = []
+                    
+                    # Thể thao
+                    if any(term in hobby.lower() for term in ["bóng đá", "tennis", "bơi", "cầu lông", "thể thao"]):
+                        specific_templates = [
+                            f"Kết quả trận đấu {hobby} gần đây nhất",
+                            f"Giải đấu {hobby} sắp diễn ra",
+                            f"Cầu thủ/VĐV {hobby} xuất sắc nhất hiện nay",
+                            f"Lịch thi đấu {hobby} tuần này",
+                            f"Kỷ lục {hobby} hiện tại là gì"
+                        ]
+                    # Phim/TV
+                    elif any(term in hobby.lower() for term in ["phim", "movie", "netflix", "tv", "điện ảnh"]):
+                        specific_templates = [
+                            f"{hobby} hay nhất năm 2024",
+                            f"Đánh giá {hobby} mới ra mắt",
+                            f"Diễn viên nổi tiếng trong lĩnh vực {hobby}",
+                            f"{hobby} sắp chiếu trong tháng tới",
+                            f"Đạo diễn nổi tiếng về {hobby}"
+                        ]
+                    # Âm nhạc
+                    elif any(term in hobby.lower() for term in ["âm nhạc", "nhạc", "music", "ca sĩ", "nhạc sĩ"]):
+                        specific_templates = [
+                            f"Bài hát {hobby} đang hot",
+                            f"Ca sĩ {hobby} được yêu thích nhất",
+                            f"Concert {hobby} sắp diễn ra",
+                            f"Album {hobby} mới phát hành",
+                            f"Xu hướng {hobby} đang thịnh hành"
+                        ]
+                    # Du lịch
+                    elif any(term in hobby.lower() for term in ["du lịch", "travel", "khám phá", "phượt"]):
+                        specific_templates = [
+                            f"Địa điểm {hobby} tuyệt vời nhất",
+                            f"Kinh nghiệm {hobby} tiết kiệm",
+                            f"Thời điểm lý tưởng để {hobby}",
+                            f"Những điều cần tránh khi {hobby}",
+                            f"Ẩm thực nổi tiếng khi {hobby}"
+                        ]
+                    # Công nghệ
+                    elif any(term in hobby.lower() for term in ["công nghệ", "tech", "smartphone", "máy tính", "ai"]):
+                        specific_templates = [
+                            f"Sản phẩm {hobby} mới nhất",
+                            f"Đánh giá về {hobby} vừa ra mắt",
+                            f"Tương lai của {hobby}",
+                            f"So sánh các sản phẩm {hobby}",
+                            f"Tin tức mới nhất về {hobby}"
+                        ]
+                    # Mặc định cho các sở thích khác
+                    else:
+                        specific_templates = [
+                            f"Tin tức mới nhất về {hobby}",
+                            f"Người nổi tiếng trong lĩnh vực {hobby}",
+                            f"Cách học {hobby} hiệu quả",
+                            f"Tài liệu hay về {hobby}",
+                            f"Cộng đồng {hobby} ở Việt Nam",
+                            f"Sự kiện {hobby} sắp tới",
+                            f"Lợi ích của việc tham gia {hobby}",
+                            f"Xu hướng {hobby} năm 2024"
+                        ]
+                    
+                    if specific_templates:
+                        question = random.choice(specific_templates)
+                        # Thêm dấu hỏi nếu chưa có
+                        if not question.endswith("?"):
+                            question += "?"
+                        questions.append(question)
     
     # Tạo câu hỏi liên quan đến dị ứng
     if allergies:
-        # Tạo câu hỏi cho mỗi loại dị ứng
         for allergy in allergies:
-            allergy_templates = [
-                f"Món ăn nào an toàn cho người dị ứng {allergy}?",
-                f"Thay thế {allergy} bằng gì trong nấu ăn?",
-                f"Triệu chứng dị ứng {allergy} là gì?",
-                f"Cách phòng tránh tiếp xúc với {allergy}?",
-                f"Điều trị dị ứng {allergy} như thế nào?"
+            # Tạo câu hỏi linh động về dị ứng
+            allergy_prefixes = [
+                f"Món ăn thay thế cho người dị ứng {allergy}",
+                f"Cách nấu ăn an toàn cho người dị ứng {allergy}",
+                f"Những nguyên liệu có thể thay thế {allergy}",
+                f"Triệu chứng dị ứng {allergy}",
+                f"Cách phòng tránh tiếp xúc với {allergy}"
             ]
             
-            # Thêm 1 câu hỏi về dị ứng
-            import random
-            if allergy_templates:
-                allergy_question = random.choice(allergy_templates)
+            # Thêm một câu hỏi ngẫu nhiên về dị ứng
+            if allergy_prefixes:
+                allergy_question = random.choice(allergy_prefixes)
+                if not allergy_question.endswith("?"):
+                    allergy_question += "?"
                 questions.append(allergy_question)
     
     # Đảm bảo không trả về quá nhiều câu hỏi và luôn thay đổi
-    import random
-    if len(questions) > 10:
-        return random.sample(questions, 10)
-    elif len(questions) > 5:
+    if len(questions) > 5:
         return random.sample(questions, 5)
     
     return questions
