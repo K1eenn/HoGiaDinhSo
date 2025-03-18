@@ -1,4 +1,168 @@
-import streamlit as st
+# Hàm để phân tích tin nhắn và thêm sự kiện từ trò chuyện
+def parse_event_from_message(message):
+    """
+    Phân tích tin nhắn từ người dùng để trích xuất thông tin sự kiện nếu có
+    Trả về dict với các trường event_detected, title, date, description
+    """
+    result = {
+        "event_detected": False,
+        "title": "",
+        "date": None,
+        "description": ""
+    }
+    
+    # Các pattern để nhận diện khi người dùng muốn thêm sự kiện
+    event_patterns = [
+        "thêm sự kiện", "tạo sự kiện", "lưu sự kiện", "ghi nhớ sự kiện", 
+        "đặt lịch", "tạo lịch", "nhắc nhở", "ghi nhớ", "thêm lịch",
+        "hẹn", "hẹn lịch", "đặt hẹn"
+    ]
+    
+    message = message.lower()
+    
+    # Kiểm tra xem tin nhắn có chứa pattern nào không
+    if not any(pattern in message for pattern in event_patterns):
+        return result
+    
+    result["event_detected"] = True
+    
+    # Trích xuất tiêu đề sự kiện - tìm tiêu đề ở sau các từ khóa hoặc từ đầu câu
+    title_patterns = ["tên là ", "tiêu đề là ", "tên sự kiện là ", "với tên ", " là ", ": "]
+    title = ""
+    for pattern in title_patterns:
+        if pattern in message:
+            parts = message.split(pattern, 1)
+            if len(parts) > 1:
+                # Lấy từ sau pattern đến hết câu hoặc dấu phẩy, chấm
+                potential_title = parts[1].split(".")[0].split(",")[0].split("\n")[0]
+                if len(potential_title) > len(title):
+                    title = potential_title
+    
+    # Nếu không tìm thấy tiêu đề, thử lấy phần đầu tin nhắn
+    if not title:
+        first_sentence = message.split(".")[0].split("!")[0].split("?")[0]
+        for pattern in event_patterns:
+            if pattern in first_sentence:
+                title = first_sentence.split(pattern, 1)[1].strip()
+                break
+    
+    result["title"] = title.strip()
+    
+    # Trích xuất ngày - tìm các pattern ngày tháng
+    import re
+    from datetime import datetime, timedelta
+    
+    # Tìm kiểu dd/mm/yyyy hoặc dd-mm-yyyy
+    date_patterns = r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})'
+    date_matches = re.findall(date_patterns, message)
+    
+    # Tìm kiểu "ngày dd tháng mm"
+    vietnamese_date = r'ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})'
+    vn_matches = re.findall(vietnamese_date, message)
+    
+    # Tìm các từ khóa như "hôm nay", "ngày mai", "tuần sau"
+    today = datetime.now().date()
+    if "hôm nay" in message:
+        result["date"] = today
+    elif "ngày mai" in message or "mai" in message:
+        result["date"] = today + timedelta(days=1)
+    elif "ngày kia" in message:
+        result["date"] = today + timedelta(days=2)
+    elif "tuần sau" in message:
+        result["date"] = today + timedelta(days=7)
+    elif "tháng sau" in message:
+        # Đơn giản hóa: thêm 30 ngày
+        result["date"] = today + timedelta(days=30)
+    
+    # Xử lý các kết quả match từ regex
+    if date_matches and not result["date"]:
+        date_str = date_matches[0]
+        try:
+            # Thử parse nhiều định dạng
+            for fmt in ['%d/%m/%Y', '%d-%m-%Y', '%d/%m/%y', '%d-%m-%y']:
+                try:
+                    result["date"] = datetime.strptime(date_str, fmt).date()
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+    
+    if vn_matches and not result["date"]:
+        try:
+            day, month = vn_matches[0]
+            year = today.year
+            result["date"] = datetime(year, int(month), int(day)).date()
+        except Exception:
+            pass
+    
+    # Mặc định là hôm nay nếu không tìm thấy ngày
+    if not result["date"]:
+        result["date"] = today
+    
+    # Trích xuất mô tả - lấy phần còn lại của tin nhắn sau khi đã xác định tiêu đề và ngày
+    description = message
+    # Loại bỏ phần tiêu đề nếu đã tìm thấy
+    if result["title"] and result["title"] in description:
+        description = description.replace(result["title"], "", 1)
+    
+    # Loại bỏ các từ khóa sự kiện
+    for pattern in event_patterns:
+        description = description.replace(pattern, "")
+    
+    # Loại bỏ các từ khóa ngày
+    date_keywords = ["hôm nay", "ngày mai", "mai", "ngày kia", "tuần sau", "tháng sau", 
+                     "ngày", "tháng", "năm", "lúc", "vào"]
+    for keyword in date_keywords:
+        description = description.replace(keyword, "")
+    
+    # Làm sạch mô tả
+    description = re.sub(r'[,\.]+', '.', description)  # Chuẩn hóa dấu câu
+    description = re.sub(r'\s+', ' ', description).strip()  # Loại bỏ khoảng trắng thừa
+    
+    result["description"] = description
+    
+    return result
+
+# Hàm để thêm sự kiện từ thông tin đã phân tích
+def add_event_from_chat(event_info, family_data):
+    """
+    Thêm sự kiện mới vào dữ liệu gia đình từ thông tin đã phân tích
+    Trả về thông báo xác nhận
+    """
+    if not event_info["event_detected"] or not event_info["title"]:
+        return None
+    
+    # Tạo tiêu đề mặc định nếu không phân tích được
+    title = event_info["title"]
+    if not title.strip():
+        title = "Sự kiện mới"
+    
+    # Đảm bảo ngày được định dạng đúng
+    if event_info["date"]:
+        date_str = event_info["date"].strftime("%Y-%m-%d")
+    else:
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # Chuẩn bị mô tả
+    description = event_info["description"]
+    if not description.strip():
+        description = "Không có mô tả"
+    
+    # Thêm sự kiện mới
+    family_data["events"].append({
+        "title": title,
+        "date": date_str,
+        "description": description
+    })
+    
+    # Lưu dữ liệu
+    save_family_data(family_data)
+    
+    # Tạo thông báo xác nhận
+    confirmation = f"✅ Đã thêm sự kiện: {title} vào ngày {date_str}."
+    return confirmationimport streamlit as st
 from openai import OpenAI
 import dotenv
 import os
@@ -106,7 +270,7 @@ def get_image_base64(image_raw):
     img_byte = buffered.getvalue()
     return base64.b64encode(img_byte).decode('utf-8')
 
-# Function để query và stream phản hồi từ GPT-4o-mini
+    # Function để query và stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key=None):
     response_message = ""
     
@@ -121,12 +285,34 @@ def stream_llm_response(api_key=None):
         
         {family_context}
         
+        Người dùng có thể thêm sự kiện mới bằng cách chat với bạn. Khi họ nhắc đến việc thêm sự kiện, tạo lịch,
+        đặt hẹn, hay ghi nhớ một điều gì đó vào một ngày cụ thể, hãy hiểu rằng họ muốn thêm sự kiện mới vào lịch gia đình.
+        
         Hãy sử dụng thông tin này để cá nhân hóa câu trả lời của bạn. Khi người dùng hỏi về một thành viên cụ thể, 
         hãy đưa ra gợi ý phù hợp với sở thích và hạn chế của họ. Nếu họ hỏi về kế hoạch, hãy nhắc họ về các sự kiện sắp tới."""
     }
     
     # Thêm tin nhắn hệ thống vào đầu danh sách
     messages = [system_message] + st.session_state.messages
+    
+    # Trước khi gọi AI, kiểm tra xem tin nhắn cuối cùng có phải là thêm sự kiện không
+    if len(st.session_state.messages) > 0:
+        last_user_message = None
+        for msg in reversed(st.session_state.messages):
+            if msg["role"] == "user" and msg["content"][0]["type"] == "text":
+                last_user_message = msg["content"][0]["text"]
+                break
+        
+        if last_user_message:
+            # Phân tích tin nhắn xem có phải là thêm sự kiện không
+            family_data = load_family_data()
+            event_info = parse_event_from_message(last_user_message)
+            if event_info["event_detected"]:
+                # Thêm sự kiện mới
+                confirmation = add_event_from_chat(event_info, family_data)
+                if confirmation:
+                    # Thêm thông báo xác nhận vào đầu tin nhắn phản hồi
+                    response_message = confirmation + "\n\n"
     
     client = OpenAI(api_key=api_key)
     for chunk in client.chat.completions.create(
