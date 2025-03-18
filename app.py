@@ -139,101 +139,547 @@ def get_image_base64(image_raw):
     img_byte = buffered.getvalue()
     return base64.b64encode(img_byte).decode('utf-8')
 
-# Hàm tạo câu hỏi đề xuất dựa trên sở thích và thông tin thành viên
+# Hàm tạo câu hỏi đề xuất linh động và ngẫu nhiên
 def generate_suggestions(member_id, seed_val=None):
-    """Tạo các câu hỏi đề xuất cá nhân hóa dựa trên sở thích của thành viên"""
+    """Tạo câu hỏi đề xuất cá nhân hóa động dựa trên ngữ cảnh và sở thích"""
     if member_id not in family_data:
         return []
     
-    # Đặt seed nếu được cung cấp để đảm bảo kết quả ổn định
+    # Đặt seed nếu được cung cấp để đảm bảo kết quả nhất quán khi cần
     if seed_val is not None:
         random.seed(seed_val)
     
     member = family_data[member_id]
-    suggestions = []
+    all_suggestions = []
     
-    # Lấy thông tin sở thích
+    # Lấy thông tin cá nhân cơ bản
+    name = member.get("name", "")
+    age = member.get("age", "")
     preferences = member.get("preferences", {})
     
-    # Tạo câu hỏi dựa trên sở thích ẩm thực
-    if "food" in preferences and preferences["food"]:
-        food_pref = preferences["food"]
-        suggestions.extend([
-            f"Công thức nấu {food_pref} ngon nhất",
-            f"Địa điểm ăn {food_pref} nổi tiếng gần đây",
-            f"Cách biến tấu món {food_pref} cho bữa tối nay"
-        ])
+    # Lấy thông tin về ngày và thời gian hiện tại
+    now = datetime.datetime.now()
+    current_hour = now.hour
+    weekday = now.weekday()
+    day_names = ["thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ Nhật"]
+    current_day = day_names[weekday]
+    is_weekend = weekday >= 5
+    is_morning = 5 <= current_hour < 12
+    is_afternoon = 12 <= current_hour < 18
+    is_evening = 18 <= current_hour < 22
+    is_night = current_hour >= 22 or current_hour < 5
     
-    # Tạo câu hỏi dựa trên sở thích
-    if "hobby" in preferences and preferences["hobby"]:
-        hobby = preferences["hobby"]
-        if "thể thao" in hobby.lower() or "bóng đá" in hobby.lower():
-            suggestions.extend([
-                "Kết quả trận đấu hôm qua",
-                "Lịch thi đấu tuần này",
-                "Thông tin chuyển nhượng mới nhất"
-            ])
-        elif "phim" in hobby.lower() or "movie" in hobby.lower():
-            suggestions.extend([
-                "Phim mới ra rạp tuần này",
-                "Đề xuất phim cho buổi tối gia đình",
-                "Top phim được đánh giá cao tháng này"
-            ])
-        elif "đọc sách" in hobby.lower() or "sách" in hobby.lower():
-            suggestions.extend([
-                "Sách mới xuất bản tháng này",
-                "Đề xuất sách theo chủ đề yêu thích",
-                "Top sách bán chạy nhất hiện nay"
-            ])
-        else:
-            # Nếu không phải các sở thích phổ biến, tạo câu hỏi chung dựa trên sở thích
-            suggestions.extend([
-                f"Tin tức mới nhất về {hobby}",
-                f"Các sự kiện {hobby} sắp diễn ra",
-                f"Làm thế nào để nâng cao kỹ năng {hobby}"
-            ])
-    
-    # Tạo câu hỏi dựa trên tuổi
-    age = member.get("age", "")
-    if age and age.isdigit():
-        age_num = int(age)
-        if age_num < 18:
-            suggestions.extend([
-                "Các hoạt động giáo dục vui nhộn cho trẻ",
-                "Ý tưởng cho buổi dã ngoại gia đình cuối tuần",
-                "Cách giúp trẻ phát triển kỹ năng giao tiếp"
-            ])
-        elif 18 <= age_num <= 30:
-            suggestions.extend([
-                "Các khóa học online phát triển kỹ năng",
-                "Cách cân bằng công việc và cuộc sống",
-                "Ý tưởng tụ họp bạn bè cuối tuần"
-            ])
-        else:
-            suggestions.extend([
-                "Bài tập thể dục nhẹ nhàng hàng ngày",
-                "Các món ăn tốt cho sức khỏe",
-                "Ý tưởng cho chuyến du lịch gia đình"
-            ])
-    
-    # Thêm một số câu hỏi chung
-    general_suggestions = [
-        "Dự báo thời tiết hôm nay",
-        "Tin tức nổi bật trong ngày",
-        "Gợi ý cho bữa tối gia đình",
-        "Ý tưởng cho hoạt động cuối tuần"
+    # --- TEMPLATES CHO CÂU HỎI ---
+    # Templates chung - điền vào khoảng trống
+    time_templates = [
+        f"Dự báo thời tiết {{time_context}} ở đâu?",
+        f"Tin tức nổi bật {{time_context}}",
+        f"Có sự kiện gì thú vị {{time_context}}?",
+        f"Món ăn phù hợp cho {{time_context}}?",
     ]
     
-    # Kết hợp và xáo trộn danh sách đề xuất
-    suggestions.extend(general_suggestions)
-    random.shuffle(suggestions)
+    # Tạo câu hỏi dựa trên thời điểm trong ngày
+    time_contexts = []
+    if is_morning:
+        time_contexts = ["sáng nay", "buổi sáng hôm nay", "bữa sáng", f"sáng {current_day}"]
+    elif is_afternoon:
+        time_contexts = ["trưa nay", "chiều nay", "bữa trưa", f"chiều {current_day}"]
+    elif is_evening:
+        time_contexts = ["tối nay", "bữa tối", f"tối {current_day}", "buổi tối hôm nay"]
+    elif is_night:
+        time_contexts = ["đêm nay", "khuya nay", "trước khi đi ngủ", f"đêm {current_day}"]
+    
+    # Chọn ngẫu nhiên một số templates thời gian và time_context
+    if time_contexts:
+        for _ in range(2):  # Chỉ lấy một số lượng nhỏ câu hỏi thời gian
+            template = random.choice(time_templates)
+            context = random.choice(time_contexts)
+            all_suggestions.append(template.format(time_context=context))
+    
+    # --- CÂU HỎI DỰA TRÊN SỞ THÍCH ẨM THỰC ---
+    food_templates = [
+        "Cách chế biến món {food} phiên bản mới lạ",
+        "Nhà hàng nào có món {food} ngon nhất?",
+        "Có công thức {food} nào đơn giản không?",
+        "Biến tấu món {food} để phù hợp với chế độ ăn lành mạnh",
+        "Top 5 quán {food} được đánh giá cao nhất",
+        "Lịch sử và nguồn gốc của món {food}",
+        "Cách làm {food} để trẻ em cũng thích ăn",
+        "{food} có thể kết hợp với món nào khác?",
+        "Đồ uống phù hợp với món {food}",
+        "Có thể thay thế nguyên liệu nào trong món {food}?",
+        "Cách bảo quản {food} được lâu nhất",
+        "Nước sốt đặc biệt cho món {food}"
+    ]
+    
+    if "food" in preferences and preferences["food"]:
+        food_pref = preferences["food"]
+        food_prefs = [food_pref]
+        
+        # Thử tách thành các món riêng biệt nếu có dấu phẩy hoặc "và"
+        if "," in food_pref:
+            food_prefs = [f.strip() for f in food_pref.split(",")]
+        elif " và " in food_pref:
+            food_prefs = [f.strip() for f in food_pref.split(" và ")]
+        
+        # Chọn ngẫu nhiên 2-3 câu hỏi về ẩm thực
+        food_count = min(len(food_prefs) * 2, 3)
+        for _ in range(food_count):
+            template = random.choice(food_templates)
+            food = random.choice(food_prefs)
+            all_suggestions.append(template.format(food=food))
+    
+    # --- CÂU HỎI DỰA TRÊN SỞ THÍCH ---
+    hobby_templates = {
+        "thể thao": [
+            "Kết quả {hobby} gần đây nhất",
+            "Ai là ngôi sao {hobby} đang nổi hiện nay?",
+            "Giải đấu {hobby} sắp diễn ra gần đây",
+            "Kỹ thuật mới trong {hobby} mà bạn nên biết",
+            "Cách cải thiện kỹ năng {hobby} của bạn",
+            "Trang phục/dụng cụ phù hợp cho {hobby}",
+            "Làm sao để tránh chấn thương khi chơi {hobby}?",
+            "So sánh kỹ thuật {hobby} của các vận động viên hàng đầu",
+            "Dinh dưỡng phù hợp cho người chơi {hobby}",
+            "Podcast hay về {hobby} bạn nên nghe"
+        ],
+        "đọc sách": [
+            "Sách mới về {specific} vừa ra mắt",
+            "Top 5 cuốn sách {specific} được đánh giá cao nhất",
+            "Tác giả {specific} đáng chú ý nhất hiện nay",
+            "Cách đọc sách {specific} hiệu quả hơn",
+            "Câu lạc bộ sách về {specific} bạn có thể tham gia",
+            "Sách {specific} hay nhất mọi thời đại",
+            "Tác phẩm tiếp theo của tác giả yêu thích",
+            "Xu hướng mới trong thể loại sách {specific}",
+            "Ứng dụng đọc sách {specific} tốt nhất",
+            "Sách chuyển thể thành phim về {specific}"
+        ],
+        "phim": [
+            "Phim {specific} mới ra mắt đáng xem",
+            "Đánh giá về series {specific} gây sốt gần đây",
+            "Diễn viên mới nổi trong thể loại {specific}",
+            "Top phim {specific} trên Netflix/HBO",
+            "Phim {specific} sắp công chiếu tháng tới",
+            "Phân tích sâu về phim {specific} hay nhất",
+            "Đạo diễn tài năng mới trong thể loại {specific}",
+            "Xu hướng làm phim {specific} hiện đại",
+            "Phim {specific} đoạt giải thưởng gần đây",
+            "So sánh bản gốc và remake của phim {specific}"
+        ],
+        "âm nhạc": [
+            "Bài hát {specific} đang viral hiện nay",
+            "Album {specific} mới ra mắt đáng nghe",
+            "Nghệ sĩ {specific} đang được chú ý",
+            "Festival âm nhạc {specific} sắp diễn ra",
+            "Playlist {specific} hay nhất cho {activity}",
+            "Xu hướng âm nhạc {specific} mới nhất",
+            "Nhạc cụ phù hợp để học chơi nhạc {specific}",
+            "Nghệ sĩ {specific} sẽ có tour diễn ở đâu?",
+            "So sánh các phong cách âm nhạc {specific}",
+            "MV âm nhạc {specific} đáng xem nhất"
+        ],
+        "nấu ăn": [
+            "Bí quyết nấu món {specific} hoàn hảo",
+            "Nguyên liệu thay thế trong món {specific}",
+            "Cách trang trí món {specific} đẹp mắt",
+            "Kỹ thuật nấu {specific} của đầu bếp nổi tiếng",
+            "Xu hướng mới trong ẩm thực {specific}",
+            "Công thức {specific} dễ làm cho người mới bắt đầu",
+            "Đồ dùng nhà bếp cần thiết để làm {specific}",
+            "Biến tấu món {specific} hợp khẩu vị gia đình",
+            "Cách bảo quản nguyên liệu làm {specific}",
+            "Khóa học nấu {specific} trực tuyến tốt nhất"
+        ],
+        "du lịch": [
+            "Địa điểm {specific} đáng đi vào thời điểm này",
+            "Review về điểm du lịch {specific} mới nổi",
+            "Kinh nghiệm du lịch {specific} tiết kiệm",
+            "Món ăn đặc sản phải thử khi đến {specific}",
+            "Lịch trình lý tưởng khi du lịch {specific} {duration}",
+            "Khách sạn/homestay chất lượng ở {specific}",
+            "Hoạt động thú vị nhất khi đến {specific}",
+            "Cách đi lại hiệu quả ở {specific}",
+            "Thời điểm lý tưởng để du lịch {specific}",
+            "Đồ vật cần mang khi đi {specific}"
+        ],
+        "thủ công": [
+            "Ý tưởng {specific} đơn giản làm tại nhà",
+            "Nguyên liệu cần thiết cho dự án {specific}",
+            "Kỹ thuật mới trong {specific} bạn nên thử",
+            "Cách tạo {specific} để trang trí nhà cửa",
+            "Dự án {specific} phù hợp làm cùng trẻ em",
+            "Workshop {specific} đáng tham gia",
+            "Những kênh YouTube hay về {specific}",
+            "Cách kiếm tiền từ sở thích {specific}",
+            "Xu hướng mới trong nghề {specific}",
+            "Cộng đồng {specific} bạn có thể tham gia"
+        ],
+        "game": [
+            "Game {specific} mới ra mắt đáng chơi",
+            "Mẹo chơi {specific} hiệu quả hơn",
+            "Bản cập nhật mới nhất của {specific}",
+            "Giải đấu {specific} sắp diễn ra",
+            "Streamer {specific} đáng xem nhất",
+            "Cấu hình máy tính phù hợp để chơi {specific}",
+            "Review về {specific} mới ra mắt",
+            "So sánh các phiên bản của {specific}",
+            "Cộng đồng {specific} thân thiện cho người mới",
+            "Chiến thuật mới trong {specific}"
+        ],
+        "công nghệ": [
+            "Thiết bị {specific} mới ra mắt",
+            "Đánh giá về {specific} đáng mua nhất",
+            "So sánh các dòng {specific} trên thị trường",
+            "Tin đồn về {specific} sắp ra mắt",
+            "Cách tối ưu hóa hiệu suất {specific}",
+            "Phụ kiện cần thiết cho {specific}",
+            "Xu hướng {specific} trong tương lai",
+            "App hay nhất cho người dùng {specific}",
+            "Thủ thuật {specific} không phải ai cũng biết",
+            "Vấn đề bảo mật trên {specific}"
+        ]
+    }
+    
+    # Danh sách các specific có thể dùng cho mỗi sở thích
+    hobby_specifics = {
+        "thể thao": ["bóng đá", "bóng rổ", "võ thuật", "bơi lội", "tennis", "chạy bộ", "đạp xe", "cầu lông", "golf", "thể dục"],
+        "đọc sách": ["trinh thám", "lãng mạn", "khoa học viễn tưởng", "tự lực", "kinh doanh", "lịch sử", "văn học", "thiếu nhi", "tiểu thuyết", "tâm lý học"],
+        "phim": ["hành động", "tình cảm", "kinh dị", "hoạt hình", "viễn tưởng", "hài hước", "tâm lý", "tài liệu", "siêu anh hùng", "độc lập"],
+        "âm nhạc": ["pop", "rock", "classical", "jazz", "hip hop", "EDM", "indie", "K-pop", "V-pop", "acoustic"],
+        "nấu ăn": ["bánh ngọt", "món Âu", "món Á", "đồ chay", "hải sản", "BBQ", "món Việt", "món Hàn", "món Nhật", "món tráng miệng"],
+        "du lịch": ["Đà Lạt", "Sapa", "Phú Quốc", "Nha Trang", "Hội An", "châu Âu", "châu Á", "trong nước", "biển", "núi"],
+        "thủ công": ["thêu thùa", "đan móc", "làm gốm", "làm nến", "vẽ tranh", "làm đồ trang sức", "origami", "khắc gỗ", "decoupage", "scrapbooking"],
+        "game": ["MOBA", "FPS", "nhập vai", "chiến thuật", "thẻ bài", "mô phỏng", "phiêu lưu", "đối kháng", "thể thao", "indie"],
+        "công nghệ": ["smartphone", "laptop", "máy ảnh", "tai nghe", "smartwatch", "màn hình", "máy tính bảng", "loa thông minh", "xe điện", "nhà thông minh"]
+    }
+    
+    # Các hoạt động có thể kết hợp với âm nhạc
+    activities = ["tập thể dục", "làm việc", "thư giãn", "học tập", "lái xe", "buổi tiệc", "buổi hẹn", "yoga"]
+    
+    # Thời gian du lịch
+    durations = ["3 ngày", "1 tuần", "cuối tuần", "1 ngày", "2 tuần"]
+    
+    if "hobby" in preferences and preferences["hobby"]:
+        hobby = preferences["hobby"].lower()
+        
+        # Xác định loại sở thích chính
+        main_category = None
+        for category in hobby_templates.keys():
+            if category in hobby:
+                main_category = category
+                break
+        
+        # Nếu không tìm thấy chính xác, thử tìm gần đúng
+        if not main_category:
+            # Map một số từ khóa phổ biến đến category
+            hobby_keywords = {
+                "thể thao": ["bóng đá", "bóng rổ", "tennis", "chạy bộ", "cầu lông", "đạp xe", "bơi lội", "golf", "võ", "thể dục"],
+                "đọc sách": ["đọc", "sách", "truyện", "văn học", "tiểu thuyết"],
+                "phim": ["phim", "movie", "cinema", "đạo diễn", "diễn viên", "netflix"],
+                "âm nhạc": ["âm nhạc", "nhạc", "hát", "ca", "nhạc cụ", "guitar", "piano"],
+                "nấu ăn": ["nấu", "ăn", "đồ ăn", "món ăn", "làm bánh", "nấu nướng", "ẩm thực", "bếp"],
+                "du lịch": ["du lịch", "đi", "travel", "khám phá", "dạo chơi", "check-in"],
+                "thủ công": ["thủ công", "làm đồ", "handmade", "craft", "diy", "tự làm", "vẽ", "mỹ thuật"],
+                "game": ["game", "chơi game", "games", "gaming", "trò chơi", "esport"],
+                "công nghệ": ["công nghệ", "tech", "gadget", "điện tử", "máy tính", "smartphone", "AI", "thiết bị"]
+            }
+            
+            for category, keywords in hobby_keywords.items():
+                if any(keyword in hobby for keyword in keywords):
+                    main_category = category
+                    break
+        
+        # Nếu vẫn không tìm thấy, dùng template chung
+        if main_category:
+            templates = hobby_templates[main_category]
+            specifics = hobby_specifics.get(main_category, [main_category])
+            
+            # Nếu đã có specific trong hobby, ưu tiên dùng
+            found_specific = False
+            for specific in specifics:
+                if specific in hobby:
+                    found_specific = True
+                    for _ in range(min(len(templates), 3)):
+                        template = random.choice(templates)
+                        
+                        # Xử lý các trường hợp đặc biệt
+                        if main_category == "âm nhạc" and "{activity}" in template:
+                            activity = random.choice(activities)
+                            suggestion = template.format(specific=specific, activity=activity)
+                        elif main_category == "du lịch" and "{duration}" in template:
+                            duration = random.choice(durations)
+                            suggestion = template.format(specific=specific, duration=duration)
+                        else:
+                            suggestion = template.format(specific=specific)
+                            
+                        all_suggestions.append(suggestion)
+            
+            # Nếu không tìm thấy specific, chọn ngẫu nhiên
+            if not found_specific:
+                for _ in range(min(len(templates), 3)):
+                    template = random.choice(templates)
+                    specific = random.choice(specifics)
+                    
+                    # Xử lý các trường hợp đặc biệt
+                    if main_category == "âm nhạc" and "{activity}" in template:
+                        activity = random.choice(activities)
+                        suggestion = template.format(specific=specific, activity=activity)
+                    elif main_category == "du lịch" and "{duration}" in template:
+                        duration = random.choice(durations)
+                        suggestion = template.format(specific=specific, duration=duration)
+                    else:
+                        suggestion = template.format(specific=specific)
+                        
+                    all_suggestions.append(suggestion)
+        else:
+            # Dùng template chung nếu không xác định được sở thích chính
+            generic_templates = [
+                f"Tin tức mới nhất về {hobby}?",
+                f"Sự kiện {hobby} đáng chú ý sắp tới?",
+                f"Cách cải thiện kỹ năng {hobby}?",
+                f"Cộng đồng {hobby} nào phù hợp để tham gia?",
+                f"Xu hướng mới nhất trong lĩnh vực {hobby}?",
+                f"Thiết bị/dụng cụ tốt nhất cho {hobby}?",
+                f"Khóa học {hobby} đáng học nhất hiện nay?"
+            ]
+            
+            for _ in range(min(len(generic_templates), 3)):
+                suggestion = random.choice(generic_templates)
+                all_suggestions.append(suggestion)
+    
+    # --- TẠO CÂU HỎI DỰA TRÊN TUỔI ---
+    if age and age.isdigit():
+        age_num = int(age)
+        age_templates = []
+        
+        if age_num < 18:
+            age_templates = [
+                "Hoạt động ngoài trời phù hợp với trẻ {age} tuổi?",
+                "Sách phù hợp cho bé {age} tuổi?",
+                "Cách phát triển kỹ năng xã hội cho trẻ {age} tuổi?",
+                "Ứng dụng học tập hay cho trẻ {age} tuổi?",
+                "Đồ chơi giáo dục phù hợp với bé {age} tuổi?",
+                "Làm sao để khuyến khích trẻ {age} tuổi học tập?",
+                "Chế độ dinh dưỡng cho trẻ {age} tuổi đang phát triển?",
+                "Dấu hiệu phát triển bình thường ở trẻ {age} tuổi?"
+            ]
+        elif 18 <= age_num <= 25:
+            age_templates = [
+                "Công việc bán thời gian phù hợp cho người {age} tuổi?",
+                "Kỹ năng cần thiết nên học ở tuổi {age}?",
+                "Cách quản lý tài chính cá nhân ở tuổi {age}?",
+                "Mục tiêu cuộc sống nên đặt ra ở tuổi {age}?",
+                "Xu hướng thời trang dành cho người {age} tuổi?",
+                "Nên đầu tư vào gì ở tuổi {age}?",
+                "Khóa học online nên học ở tuổi {age}?",
+                "Cách xây dựng các mối quan hệ tốt ở tuổi {age}?"
+            ]
+        elif 26 <= age_num <= 40:
+            age_templates = [
+                "Kỹ năng nên phát triển ở độ tuổi {age}?",
+                "Cân bằng giữa công việc và cuộc sống ở tuổi {age}?",
+                "Cách đầu tư thông minh ở tuổi {age}?",
+                "Mục tiêu sự nghiệp phù hợp với người {age} tuổi?",
+                "Kiểm tra sức khỏe định kỳ cần thiết ở tuổi {age}?",
+                "Bảo hiểm nào cần thiết cho người {age} tuổi?",
+                "Kế hoạch tài chính dài hạn cho người {age} tuổi?",
+                "Cách duy trì năng lượng và sức khỏe ở tuổi {age}?"
+            ]
+        else:
+            age_templates = [
+                "Bài tập thể dục phù hợp với người {age} tuổi?",
+                "Chế độ dinh dưỡng tốt cho người {age} tuổi?",
+                "Sở thích mới nên thử ở tuổi {age}?",
+                "Cách duy trì tâm trí minh mẫn ở tuổi {age}?",
+                "Hoạt động xã hội phù hợp với người {age} tuổi?",
+                "Kế hoạch hưu trí cho người {age} tuổi?",
+                "Kiểm tra sức khỏe cần thiết ở tuổi {age}?",
+                "Cách sống vui vẻ và tích cực ở tuổi {age}?"
+            ]
+        
+        # Chọn ngẫu nhiên 1-2 câu hỏi về tuổi
+        for _ in range(random.randint(1, 2)):
+            if age_templates:
+                template = random.choice(age_templates)
+                age_templates.remove(template)  # Tránh lặp lại
+                all_suggestions.append(template.format(age=age))
+    
+    # --- CÂU HỎI DỰA TRÊN NGÀY TRONG TUẦN ---
+    weekday_templates = {
+        "thứ Hai": [
+            "Làm gì để khởi đầu tuần mới tích cực?",
+            "Kế hoạch cho tuần mới?",
+            "Món ăn nhanh gọn cho ngày bận rộn đầu tuần?",
+            "Cách vượt qua căng thẳng ngày đầu tuần?"
+        ],
+        "thứ Ba": [
+            "Mẹo tăng năng suất làm việc giữa tuần?",
+            "Ý tưởng món ăn cho bữa tối thứ Ba?",
+            "Podcast hay nên nghe khi làm việc thứ Ba?",
+            "Cách thư giãn sau một ngày làm việc mệt mỏi?"
+        ],
+        "thứ Tư": [
+            "Cách vượt qua 'bức tường' giữa tuần?",
+            "Hoạt động thư giãn cho tối thứ Tư?",
+            "Có nên thưởng thức một bộ phim giữa tuần?",
+            "Công thức món tối nhanh gọn cho thứ Tư?"
+        ],
+        "thứ Năm": [
+            "Kế hoạch cho kỳ nghỉ cuối tuần sắp tới?",
+            "Món ăn thứ Năm hấp dẫn?",
+            "Sắp xếp công việc để kết thúc tuần hiệu quả?",
+            "Địa điểm vui chơi cuối tuần nên đặt trước?"
+        ],
+        "thứ Sáu": [
+            "Địa điểm vui chơi cuối tuần?",
+            "Món ăn đặc biệt cho tối thứ Sáu?",
+            "Phim mới cuối tuần này?",
+            "Kế hoạch thú vị cho Friday night?"
+        ],
+        "thứ Bảy": [
+            "Hoạt động ngoài trời cho ngày thứ Bảy?",
+            "Địa điểm brunch cuối tuần?",
+            "Sự kiện thú vị diễn ra cuối tuần này?",
+            "Công thức nấu ăn đặc biệt cho bữa tối thứ Bảy?"
+        ],
+        "Chủ Nhật": [
+            "Ý tưởng cho bữa trưa Chủ Nhật?",
+            "Hoạt động thư giãn trước khi bắt đầu tuần mới?",
+            "Cách chuẩn bị cho tuần làm việc sắp tới?",
+            "Món tráng miệng đặc biệt cho bữa tối Chủ Nhật?"
+        ]
+    }
+    
+    # Chọn 1 câu hỏi ngẫu nhiên dựa trên ngày trong tuần
+    if current_day in weekday_templates:
+        suggestion = random.choice(weekday_templates[current_day])
+        all_suggestions.append(suggestion)
+    
+    # --- CÂU HỎI DỰA TRÊN MÙA ---
+    current_month = now.month
+    seasons = {
+        "xuân": [2, 3, 4],  # Tháng 2-4
+        "hè": [5, 6, 7],    # Tháng 5-7
+        "thu": [8, 9, 10],  # Tháng 8-10
+        "đông": [11, 12, 1] # Tháng 11-1
+    }
+    
+    current_season = None
+    for season, months in seasons.items():
+        if current_month in months:
+            current_season = season
+            break
+    
+    if current_season:
+        season_templates = {
+            "xuân": [
+                "Hoạt động ngoài trời thú vị trong mùa xuân?",
+                "Món ăn phù hợp với thời tiết mùa xuân?",
+                "Địa điểm ngắm hoa mùa xuân đẹp nhất?",
+                "Trang phục phù hợp với thời tiết giao mùa?"
+            ],
+            "hè": [
+                "Điểm du lịch biển nổi tiếng mùa hè này?",
+                "Cách giải nhiệt hiệu quả ngày nóng?",
+                "Món ăn nhẹ phù hợp cho ngày hè?",
+                "Hoạt động vui chơi dưới nước thú vị?"
+            ],
+            "thu": [
+                "Địa điểm ngắm lá vàng mùa thu?",
+                "Món ăn ngon mùa thu?",
+                "Cách trang trí nhà theo phong cách mùa thu?",
+                "Trà đặc biệt cho ngày thu se lạnh?"
+            ],
+            "đông": [
+                "Điểm du lịch mùa đông thú vị?",
+                "Món ăn ấm áp cho ngày lạnh?",
+                "Cách giữ ấm hiệu quả trong mùa đông?",
+                "Hoạt động trong nhà thú vị cho ngày lạnh?"
+            ]
+        }
+        
+        suggestion = random.choice(season_templates[current_season])
+        all_suggestions.append(suggestion)
+    
+    # --- CÂU HỎI DỰA TRÊN SỰ KIỆN GẦN ĐÂY ---
+    # Kiểm tra các sự kiện sắp diễn ra trong 7 ngày tới
+    upcoming_events = []
+    today_date = now.date()
+    
+    for event_id, event in events_data.items():
+        try:
+            event_date = datetime.datetime.strptime(event.get("date", ""), "%Y-%m-%d").date()
+            days_until = (event_date - today_date).days
+            
+            if 0 <= days_until <= 7:
+                # Nếu người dùng là thành viên trong sự kiện
+                if "participants" in event and name in event["participants"]:
+                    upcoming_events.append(event)
+        except:
+            pass
+    
+    if upcoming_events:
+        event = random.choice(upcoming_events)
+        event_templates = [
+            f"Cần chuẩn bị gì cho sự kiện {event.get('title', '')}?",
+            f"Quà phù hợp cho {event.get('title', '')}?",
+            f"Trang phục phù hợp cho {event.get('title', '')}?",
+            f"Địa điểm tổ chức {event.get('title', '')} gần đây?"
+        ]
+        
+        suggestion = random.choice(event_templates)
+        all_suggestions.append(suggestion)
+    
+    # Lấy một số câu hỏi chung nếu còn thiếu
+    general_templates = [
+        "Cách cải thiện giấc ngủ?",
+        "Mẹo tiết kiệm thời gian hàng ngày?",
+        "Món ăn vặt lành mạnh?",
+        "Bài tập thể dục ngắn hiệu quả?",
+        "Podcast đáng nghe hiện nay?",
+        "Mẹo tăng năng suất làm việc?",
+        "Cách thư giãn sau ngày làm việc?",
+        "Ứng dụng hữu ích mới nên thử?",
+        "Xu hướng công nghệ đáng chú ý?",
+        "Mẹo giữ nhà cửa gọn gàng?",
+        "Sách hay nên đọc?",
+        "Phim đáng xem trên Netflix?",
+        "Cách tiết kiệm pin điện thoại?",
+        "Món quà ý nghĩa cho người thân?",
+        "Thực phẩm tốt cho sức khỏe?",
+        "Mẹo chăm sóc cây trồng trong nhà?",
+        "Trò chơi gia đình vui nhộn?",
+        "Ý tưởng trang trí nhà đơn giản?",
+        "Các bài tập thư giãn tinh thần?",
+        "Công thức smoothie tốt cho sức khỏe?"
+    ]
+    
+    # Thêm câu hỏi chung nếu không có đủ đề xuất
+    while len(all_suggestions) < 5:
+        if general_templates:
+            suggestion = random.choice(general_templates)
+            general_templates.remove(suggestion)  # Tránh lặp lại
+            if suggestion not in all_suggestions:
+                all_suggestions.append(suggestion)
+        else:
+            break
+    
+    # Xáo trộn tất cả đề xuất
+    random.shuffle(all_suggestions)
     
     # Đặt lại seed nếu đã thay đổi
     if seed_val is not None:
         random.seed()
     
-    # Giới hạn số lượng đề xuất
-    return suggestions[:5]
+    # Giới hạn số lượng đề xuất và thêm dấu hỏi nếu cần
+    final_suggestions = []
+    for suggestion in all_suggestions[:5]:
+        if not suggestion.endswith("?"):
+            suggestion += "?"
+        final_suggestions.append(suggestion)
+    
+    return final_suggestions
 
 # Tóm tắt cuộc trò chuyện và lưu vào lịch sử
 def save_conversation_summary(member_id, messages, openai_client):
@@ -999,9 +1445,19 @@ def main():
             on_click=reset_conversation,
         )
 
-    # Kiểm tra xem có đang xử lý đề xuất không
+    # Kiểm tra xem có đang xử lý đề xuất không và nếu cần thay đổi danh sách đề xuất
     if "processing_suggestion" not in st.session_state:
         st.session_state.processing_suggestion = False
+    
+    # Kiểm tra xem cần tạo đề xuất mới không
+    create_new_suggestions = False
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    # Tạo mới nếu: chưa có danh sách, thành viên thay đổi, hoặc ngày thay đổi
+    if ("suggestion_list" not in st.session_state or 
+            st.session_state.current_member != st.session_state.get("last_suggestion_member", None) or
+            today != st.session_state.get("last_suggestion_date", "")):
+        create_new_suggestions = True
         
     # Kiểm tra nếu có đề xuất được chọn từ lần rerun trước
     if "selected_suggestion" in st.session_state and st.session_state.processing_suggestion:
@@ -1020,9 +1476,17 @@ def main():
         with st.chat_message("user"):
             st.markdown(suggestion)
             
+                # Hiển thị tin nhắn người dùng
+        with st.chat_message("user"):
+            st.markdown(suggestion)
+        
+        # Tạo biến cho phản hồi
+        client = OpenAI(api_key=openai_api_key)
+        response_message = ""
+        
         # Tạo system prompt riêng cho phần này
         custom_system_prompt = f"""
-        Bạn là trợ lý gia đình thông minh. Hãy trả lời câu hỏi sau của người dùng một cách hữu ích: {suggestion}
+        Bạn là trợ lý gia đình thông minh. Hãy trả lời câu hỏi sau của người dùng một cách hữu ích và ngắn gọn: {suggestion}
         
         Thông tin về thành viên hiện tại:
         """
@@ -1041,20 +1505,16 @@ def main():
                     if pref_value:
                         custom_system_prompt += f"- {pref_key}: {pref_value}\n"
         
-        # Đặt lại biến cờ
-        st.session_state.processing_suggestion = False
-        del st.session_state.selected_suggestion
-        
-        # Kích hoạt phản hồi từ trợ lý AI - sử dụng cách tiếp cận khác
+        # Kích hoạt phản hồi từ trợ lý AI
         with st.chat_message("assistant"):
-            response_placeholder = st.empty()
+            message_placeholder = st.empty()
             full_response = ""
             
-            # Sử dụng trực tiếp OpenAI API thay vì stream_llm_response
             try:
-                client = OpenAI(api_key=openai_api_key)
-                messages = [{"role": "system", "content": custom_system_prompt}, 
-                           {"role": "user", "content": suggestion}]
+                messages = [
+                    {"role": "system", "content": custom_system_prompt},
+                    {"role": "user", "content": suggestion}
+                ]
                 
                 for chunk in client.chat.completions.create(
                     model=openai_model,
@@ -1065,43 +1525,67 @@ def main():
                 ):
                     content = chunk.choices[0].delta.content or ""
                     full_response += content
-                    response_placeholder.markdown(full_response)
+                    message_placeholder.markdown(full_response + "▌")
                 
-                # Thêm phản hồi vào session state sau khi hoàn thành
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": full_response,
-                        }
-                    ]})
+                # Xóa con trỏ nhấp nháy
+                message_placeholder.markdown(full_response)
                 
-                # Xử lý phản hồi để trích xuất lệnh
-                process_assistant_response(full_response)
-                
+                # Lưu phản hồi vào biến để xử lý
+                response_message = full_response
             except Exception as e:
-                st.error(f"Có lỗi xảy ra: {str(e)}")
+                st.error(f"Có lỗi xảy ra khi tạo phản hồi: {str(e)}")
+                response_message = f"Xin lỗi, tôi không thể trả lời câu hỏi lúc này. Lỗi: {str(e)}"
+                message_placeholder.markdown(response_message)
+        
+        # Thêm phản hồi vào session state
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_message,
+                }
+            ]
+        })
+        
+        # Xử lý phản hồi để trích xuất lệnh
+        process_assistant_response(response_message)
+        
+        # Đặt lại biến cờ
+        st.session_state.processing_suggestion = False
+        del st.session_state.selected_suggestion
     else:
-        # Tạo và lưu danh sách câu hỏi đề xuất vào session state nếu chưa có
-        if "suggestion_list" not in st.session_state or st.session_state.current_member != st.session_state.get("last_suggestion_member", None):
-            # Tạo danh sách câu hỏi đề xuất dựa trên thành viên hiện tại
+        # Tạo và lưu danh sách câu hỏi đề xuất vào session state nếu cần
+        if create_new_suggestions:
+            # Tạo danh sách câu hỏi đề xuất dựa trên thành viên hiện tại và ngày
             if selected_member and selected_member != "family":
-                # Đặt seed cố định để đảm bảo các đề xuất không thay đổi mỗi lần rerun
-                random.seed(hash(selected_member) % 10000)
-                suggestions = generate_suggestions(selected_member)
-                random.seed()  # Đặt lại seed ngẫu nhiên
+                # Tạo seed dựa trên ngày và ID thành viên để mỗi ngày có các đề xuất khác nhau
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                today_seed = hash(f"{selected_member}_{today}") % 10000
+                suggestions = generate_suggestions(selected_member, seed_val=today_seed)
             else:
                 # Đề xuất chung nếu không có thành viên cụ thể
-                suggestions = [
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                today_seed = hash(f"family_{today}") % 10000
+                random.seed(today_seed)
+                general_suggestions = [
                     "Ý tưởng cho bữa tối gia đình hôm nay",
                     "Hoạt động cuối tuần cho cả gia đình",
                     "Các sự kiện sắp tới của gia đình",
+                    "Dự báo thời tiết hôm nay",
+                    "Tin tức nổi bật trong ngày",
                     "Gợi ý món tráng miệng cho bữa tối",
-                    "Tin tức nổi bật hôm nay"
+                    "Ý tưởng trang trí nhà đơn giản",
+                    "Các trò chơi vui nhộn cho cả gia đình",
+                    "Cách tiết kiệm chi tiêu hàng ngày",
+                    "Mẹo dọn dẹp nhà cửa nhanh chóng"
                 ]
-            st.session_state.suggestion_list = suggestions[:min(5, len(suggestions))]
+                random.shuffle(general_suggestions)
+                suggestions = general_suggestions[:5]
+                random.seed()  # Đặt lại seed ngẫu nhiên
+            st.session_state.suggestion_list = suggestions
             st.session_state.last_suggestion_member = st.session_state.current_member
+            st.session_state.last_suggestion_date = today
         
         # Hiển thị các câu hỏi đề xuất làm nút bấm
         if st.session_state.suggestion_list:
