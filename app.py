@@ -248,6 +248,37 @@ def main():
                             update_button = st.form_submit_button("Cập nhật")
                         with col2:
                             delete_button = st.form_submit_button("Xóa", type="primary")
+                        
+                        if update_button:
+                            # Cập nhật thông tin
+                            family_data["members"][member_id] = {
+                                "name": edit_name,
+                                "relationship": edit_relationship,
+                                "age": edit_age,
+                                "preferences": [p.strip() for p in edit_preferences.split("\n") if p.strip()],
+                                "restrictions": [r.strip() for r in edit_restrictions.split("\n") if r.strip()],
+                                "notes": edit_notes
+                            }
+                            
+                            # Lưu dữ liệu
+                            save_family_data(family_data)
+                            st.success(f"Đã cập nhật thông tin của {edit_name}!")
+                            st.session_state.edit_member = None
+                            st.rerun()
+                        
+                        if delete_button:
+                            # Xóa thành viên
+                            name = family_data["members"][member_id].get("name", "")
+                            del family_data["members"][member_id]
+                            
+                            # Lưu dữ liệu
+                            save_family_data(family_data)
+                            st.success(f"Đã xóa {name} khỏi gia đình!")
+                            st.session_state.edit_member = None
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Lỗi khi chỉnh sửa thành viên: {str(e)}")
+                    st.session_state.edit_member = None
                     
                     if update_button:
                         # Cập nhật thông tin
