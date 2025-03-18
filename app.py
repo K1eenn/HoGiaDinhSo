@@ -19,6 +19,13 @@ FAMILY_DATA_FILE = "family_data.json"
 EVENTS_DATA_FILE = "events_data.json"
 NOTES_DATA_FILE = "notes_data.json"
 
+# Thiết lập log để debug
+import logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                   handlers=[logging.StreamHandler()])
+logger = logging.getLogger('family_assistant')
+
 # Tải dữ liệu ban đầu
 def load_data(file_path):
     if os.path.exists(file_path):
@@ -41,8 +48,12 @@ def save_data(file_path, data):
         os.makedirs(os.path.dirname(file_path) or '.', exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        logger.info(f"Đã lưu dữ liệu vào {file_path}: {len(data)} mục")
+        return True
     except Exception as e:
-        print(f"Lỗi khi lưu dữ liệu vào {file_path}: {e}")
+        logger.error(f"Lỗi khi lưu dữ liệu vào {file_path}: {e}")
+        st.error(f"Không thể lưu dữ liệu: {e}")
+        return False
 
 # Kiểm tra và đảm bảo cấu trúc dữ liệu đúng
 def verify_data_structure():
@@ -93,6 +104,7 @@ def get_image_base64(image_raw):
 
 # Hàm stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key, system_prompt=""):
+    """Hàm tạo và xử lý phản hồi từ mô hình AI"""
     response_message = ""
     
     # Tạo tin nhắn với system prompt
@@ -103,89 +115,99 @@ def stream_llm_response(api_key, system_prompt=""):
             "content": message["content"][0]["text"]
         })
     
-    client = OpenAI(api_key=api_key)
-    for chunk in client.chat.completions.create(
-        model=openai_model,
-        messages=messages,
-        temperature=0.7,
-        max_tokens=2048,
-        stream=True,
-    ):
-        chunk_text = chunk.choices[0].delta.content or ""
-        response_message += chunk_text
-        yield chunk_text
+    try:
+        client = OpenAI(api_key=api_key)
+        for chunk in client.chat.completions.create(
+            model=openai_model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+            stream=True,
+        ):
+            chunk_text = chunk.choices[0].delta.content or ""
+            response_message += chunk_text
+            yield chunk_text
 
-    # Xử lý phản hồi để trích xuất lệnh
-    process_assistant_response(response_message)
-    
-    # Thêm phản hồi vào session state
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": [
-            {
-                "type": "text",
-                "text": response_message,
-            }
-        ]})
+        # Hiển thị phản hồi đầy đủ trong log để debug
+        logger.info(f"Phản hồi đầy đủ từ trợ lý: {response_message[:200]}...")
+        
+        # Xử lý phản hồi để trích xuất lệnh
+        process_assistant_response(response_message)
+        
+        # Thêm phản hồi vào session state
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "content": [
+                {
+                    "type": "text",
+                    "text": response_message,
+                }
+            ]})
+    except Exception as e:
+        logger.error(f"Lỗi khi tạo phản hồi từ OpenAI: {e}")
+        error_message = f"Có lỗi xảy ra: {str(e)}"
+        yield error_message
 
 def process_assistant_response(response):
     """Hàm xử lý lệnh từ phản hồi của trợ lý"""
     try:
+        logger.info(f"Xử lý phản hồi của trợ lý, độ dài: {len(response)}")
+        
         # Tìm kiếm mẫu lệnh trong phản hồi
-        if "##ADD_FAMILY_MEMBER:" in response:
-            cmd = response.split("##ADD_FAMILY_MEMBER:")[1].split("##")[0].strip()
-            try:
-                details = json.loads(cmd)
-                if isinstance(details, dict):
-                    add_family_member(details)
-            except json.JSONDecodeError as e:
-                print(f"Lỗi khi phân tích JSON cho ADD_FAMILY_MEMBER: {e}")
-        
-        if "##UPDATE_PREFERENCE:" in response:
-            cmd = response.split("##UPDATE_PREFERENCE:")[1].split("##")[0].strip()
-            try:
-                details = json.loads(cmd)
-                if isinstance(details, dict):
-                    update_preference(details)
-            except json.JSONDecodeError as e:
-                print(f"Lỗi khi phân tích JSON cho UPDATE_PREFERENCE: {e}")
-        
         if "##ADD_EVENT:" in response:
-            cmd = response.split("##ADD_EVENT:")[1].split("##")[0].strip()
+            logger.info("Tìm thấy lệnh ADD_EVENT")
+            cmd_start = response.index("##ADD_EVENT:") + len("##ADD_EVENT:")
+            cmd_end = response.index("##", cmd_start)
+            cmd = response[cmd_start:cmd_end].strip()
+            
+            logger.info(f"Nội dung lệnh ADD_EVENT: {cmd}")
+            
             try:
                 details = json.loads(cmd)
                 if isinstance(details, dict):
-                    add_event(details)
+                    logger.info(f"Thêm sự kiện: {details.get('title', 'Không tiêu đề')}")
+                    success = add_event(details)
+                    if success:
+                        st.success(f"Đã thêm sự kiện: {details.get('title', '')}")
             except json.JSONDecodeError as e:
-                print(f"Lỗi khi phân tích JSON cho ADD_EVENT: {e}")
+                logger.error(f"Lỗi khi phân tích JSON cho ADD_EVENT: {e}")
+                logger.error(f"Chuỗi JSON gốc: {cmd}")
         
-        if "##UPDATE_EVENT:" in response:
-            cmd = response.split("##UPDATE_EVENT:")[1].split("##")[0].strip()
-            try:
-                details = json.loads(cmd)
-                if isinstance(details, dict):
-                    update_event(details)
-            except json.JSONDecodeError as e:
-                print(f"Lỗi khi phân tích JSON cho UPDATE_EVENT: {e}")
-        
-        if "##DELETE_EVENT:" in response:
-            cmd = response.split("##DELETE_EVENT:")[1].split("##")[0].strip()
-            try:
-                event_id = cmd.strip()
-                delete_event(event_id)
-            except Exception as e:
-                print(f"Lỗi khi xóa sự kiện: {e}")
-        
-        if "##ADD_NOTE:" in response:
-            cmd = response.split("##ADD_NOTE:")[1].split("##")[0].strip()
-            try:
-                details = json.loads(cmd)
-                if isinstance(details, dict):
-                    add_note(details)
-            except json.JSONDecodeError as e:
-                print(f"Lỗi khi phân tích JSON cho ADD_NOTE: {e}")
+        # Các lệnh xử lý khác tương tự
+        for cmd_type in ["ADD_FAMILY_MEMBER", "UPDATE_PREFERENCE", "UPDATE_EVENT", "DELETE_EVENT", "ADD_NOTE"]:
+            cmd_pattern = f"##{cmd_type}:"
+            if cmd_pattern in response:
+                logger.info(f"Tìm thấy lệnh {cmd_type}")
+                try:
+                    cmd_start = response.index(cmd_pattern) + len(cmd_pattern)
+                    cmd_end = response.index("##", cmd_start)
+                    cmd = response[cmd_start:cmd_end].strip()
+                    
+                    if cmd_type == "DELETE_EVENT":
+                        event_id = cmd.strip()
+                        delete_event(event_id)
+                        st.success(f"Đã xóa sự kiện!")
+                    else:
+                        details = json.loads(cmd)
+                        if isinstance(details, dict):
+                            if cmd_type == "ADD_FAMILY_MEMBER":
+                                add_family_member(details)
+                                st.success(f"Đã thêm thành viên: {details.get('name', '')}")
+                            elif cmd_type == "UPDATE_PREFERENCE":
+                                update_preference(details)
+                                st.success(f"Đã cập nhật sở thích!")
+                            elif cmd_type == "UPDATE_EVENT":
+                                update_event(details)
+                                st.success(f"Đã cập nhật sự kiện!")
+                            elif cmd_type == "ADD_NOTE":
+                                add_note(details)
+                                st.success(f"Đã thêm ghi chú!")
+                except Exception as e:
+                    logger.error(f"Lỗi khi xử lý lệnh {cmd_type}: {e}")
+    
     except Exception as e:
-        print(f"Lỗi khi xử lý phản hồi của trợ lý: {e}")
+        logger.error(f"Lỗi khi xử lý phản hồi của trợ lý: {e}")
+        logger.error(f"Phản hồi gốc: {response[:100]}...")
 
 # Các hàm quản lý thông tin gia đình
 def add_family_member(details):
@@ -209,18 +231,25 @@ def update_preference(details):
         family_data[member_id]["preferences"][preference_key] = preference_value
         save_data(FAMILY_DATA_FILE, family_data)
 
-# Các hàm quản lý sự kiện
 def add_event(details):
-    event_id = str(len(events_data) + 1)
-    events_data[event_id] = {
-        "title": details.get("title", ""),
-        "date": details.get("date", ""),
-        "time": details.get("time", ""),
-        "description": details.get("description", ""),
-        "participants": details.get("participants", []),
-        "created_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    save_data(EVENTS_DATA_FILE, events_data)
+    """Thêm một sự kiện mới vào danh sách sự kiện"""
+    try:
+        event_id = str(len(events_data) + 1)
+        events_data[event_id] = {
+            "title": details.get("title", ""),
+            "date": details.get("date", ""),
+            "time": details.get("time", ""),
+            "description": details.get("description", ""),
+            "participants": details.get("participants", []),
+            "created_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        save_data(EVENTS_DATA_FILE, events_data)
+        print(f"Đã thêm sự kiện: {details.get('title', '')} vào {EVENTS_DATA_FILE}")
+        print(f"Tổng số sự kiện hiện tại: {len(events_data)}")
+        return True
+    except Exception as e:
+        print(f"Lỗi khi thêm sự kiện: {e}")
+        return False
 
 def update_event(details):
     event_id = details.get("id")
@@ -582,7 +611,7 @@ def main():
         3. Thêm, cập nhật, hoặc xóa sự kiện
         4. Thêm ghi chú
         
-        Khi cần thực hiện các hành động trên, hãy sử dụng cú pháp lệnh đặc biệt (người dùng sẽ không nhìn thấy):
+        QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
         
         - Thêm thành viên: ##ADD_FAMILY_MEMBER:{{"name":"Tên","age":"Tuổi","preferences":{{"food":"Món ăn","hobby":"Sở thích","color":"Màu sắc"}}}}##
         - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở_thích","value":"giá_trị"}}##
@@ -590,6 +619,10 @@ def main():
         - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
         - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
         - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
+        
+        CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
+        
+        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn.
         
         Thông tin hiện tại về gia đình:
         {json.dumps(family_data, ensure_ascii=False, indent=2)}
