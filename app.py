@@ -336,6 +336,12 @@ def stream_llm_response(api_key=None):
         ]})
 
 def main():
+    # Inicializar variables de estado de sesión
+    if "prev_speech_hash" not in st.session_state:
+        st.session_state.prev_speech_hash = None
+    if "edit_member" not in st.session_state:
+        st.session_state.edit_member = None
+        
     # --- Cấu hình trang ---
     st.set_page_config(
         page_title="Trợ lý Gia đình AI",
@@ -704,8 +710,4 @@ def main():
 
 
 if __name__=="__main__":
-    if "prev_speech_hash" not in st.session_state:
-        st.session_state.prev_speech_hash = None
-    if "edit_member" not in st.session_state:
-        st.session_state.edit_member = None
     main()
