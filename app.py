@@ -1009,13 +1009,30 @@ def main():
         suggestion = st.session_state.selected_suggestion
         if "messages" not in st.session_state:
             st.session_state.messages = []
+            
+        # Thêm tin nhắn người dùng
         st.session_state.messages.append({
             "role": "user", 
             "content": [{"type": "text", "text": suggestion}]
         })
+        
+        # Hiển thị tin nhắn người dùng
+        with st.chat_message("user"):
+            st.markdown(suggestion)
+            
+        # Kích hoạt phản hồi từ trợ lý
+        with st.chat_message("assistant"):
+            # Tạo system prompt
+            system_prompt_for_suggestion = system_prompt
+            # Thêm phản hồi vào giao diện và session state
+            assistant_response = ""
+            for chunk in stream_llm_response(api_key=openai_api_key, system_prompt=system_prompt_for_suggestion):
+                assistant_response += chunk
+                st.write_stream(lambda: iter([chunk]))
+                
+        # Đặt lại biến cờ
         st.session_state.processing_suggestion = False
         del st.session_state.selected_suggestion
-        # Không rerun ở đây mà để code tiếp tục thực hiện
     else:
         # Tạo và lưu danh sách câu hỏi đề xuất vào session state nếu chưa có
         if "suggestion_list" not in st.session_state or st.session_state.current_member != st.session_state.get("last_suggestion_member", None):
