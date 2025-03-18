@@ -381,6 +381,9 @@ def main():
                     member_names = [member.get("name", "") for member_id, member in family_data.items() 
                                    if isinstance(member, dict) and member.get("name")]
                     participants = st.multiselect("Người tham gia", member_names)
+                except Exception as e:
+                    st.error(f"Lỗi khi tải danh sách thành viên: {e}")
+                    participants = []
                 
                 add_event_submitted = st.form_submit_button("Thêm sự kiện")
                 
@@ -464,6 +467,9 @@ def main():
                     member_names = [member.get("name", "") for member_id, member in family_data.items() 
                                    if isinstance(member, dict) and member.get("name")]
                     new_participants = st.multiselect("Người tham gia", member_names, default=event.get("participants", []))
+                except Exception as e:
+                    st.error(f"Lỗi khi tải danh sách thành viên: {e}")
+                    new_participants = []
                 
                 save_event_edits = st.form_submit_button("Lưu")
                 cancel_event_edits = st.form_submit_button("Hủy")
