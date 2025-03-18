@@ -756,8 +756,7 @@ def main():
                                         icon_size="2x", 
                                         neutral_color="#6ca395",
                                         recording_color="#e45252",
-                                        text="",  # Bỏ văn bản đi
-                                        stop_prompt="")  # Bỏ văn bản khi dừng
+                                        text="")  # Bỏ văn bản khi dừng
 
         # Xử lý dữ liệu âm thanh
         if speech_input and st.session_state.prev_speech_hash != hash(speech_input):
