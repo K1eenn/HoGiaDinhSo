@@ -1022,11 +1022,30 @@ def main():
             
         # Kích hoạt phản hồi từ trợ lý
         with st.chat_message("assistant"):
-            # Tạo system prompt
-            system_prompt_for_suggestion = system_prompt
+            # Tạo system prompt riêng cho phần này
+            custom_system_prompt = f"""
+            Bạn là trợ lý gia đình thông minh. Hãy trả lời câu hỏi sau của người dùng một cách hữu ích: {suggestion}
+            
+            Thông tin về thành viên hiện tại:
+            """
+            
+            # Thêm thông tin về thành viên hiện tại
+            if selected_member and selected_member != "family" and selected_member in family_data:
+                member = family_data[selected_member]
+                custom_system_prompt += f"""
+                Người đang trò chuyện với bạn là: {member.get('name', '')} ({member.get('age', '')} tuổi)
+                
+                Sở thích của họ:
+                """
+                
+                if "preferences" in member and isinstance(member["preferences"], dict):
+                    for pref_key, pref_value in member["preferences"].items():
+                        if pref_value:
+                            custom_system_prompt += f"- {pref_key}: {pref_value}\n"
+            
             # Thêm phản hồi vào giao diện và session state
             assistant_response = ""
-            for chunk in stream_llm_response(api_key=openai_api_key, system_prompt=system_prompt_for_suggestion):
+            for chunk in stream_llm_response(api_key=openai_api_key, system_prompt=custom_system_prompt):
                 assistant_response += chunk
                 st.write_stream(lambda: iter([chunk]))
                 
