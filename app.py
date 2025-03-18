@@ -1020,38 +1020,68 @@ def main():
         with st.chat_message("user"):
             st.markdown(suggestion)
             
-        # Kích hoạt phản hồi từ trợ lý
-        with st.chat_message("assistant"):
-            # Tạo system prompt riêng cho phần này
-            custom_system_prompt = f"""
-            Bạn là trợ lý gia đình thông minh. Hãy trả lời câu hỏi sau của người dùng một cách hữu ích: {suggestion}
+        # Tạo system prompt riêng cho phần này
+        custom_system_prompt = f"""
+        Bạn là trợ lý gia đình thông minh. Hãy trả lời câu hỏi sau của người dùng một cách hữu ích: {suggestion}
+        
+        Thông tin về thành viên hiện tại:
+        """
+        
+        # Thêm thông tin về thành viên hiện tại
+        if selected_member and selected_member != "family" and selected_member in family_data:
+            member = family_data[selected_member]
+            custom_system_prompt += f"""
+            Người đang trò chuyện với bạn là: {member.get('name', '')} ({member.get('age', '')} tuổi)
             
-            Thông tin về thành viên hiện tại:
+            Sở thích của họ:
             """
             
-            # Thêm thông tin về thành viên hiện tại
-            if selected_member and selected_member != "family" and selected_member in family_data:
-                member = family_data[selected_member]
-                custom_system_prompt += f"""
-                Người đang trò chuyện với bạn là: {member.get('name', '')} ({member.get('age', '')} tuổi)
-                
-                Sở thích của họ:
-                """
-                
-                if "preferences" in member and isinstance(member["preferences"], dict):
-                    for pref_key, pref_value in member["preferences"].items():
-                        if pref_value:
-                            custom_system_prompt += f"- {pref_key}: {pref_value}\n"
-            
-            # Thêm phản hồi vào giao diện và session state
-            assistant_response = ""
-            for chunk in stream_llm_response(api_key=openai_api_key, system_prompt=custom_system_prompt):
-                assistant_response += chunk
-                st.write_stream(lambda: iter([chunk]))
-                
+            if "preferences" in member and isinstance(member["preferences"], dict):
+                for pref_key, pref_value in member["preferences"].items():
+                    if pref_value:
+                        custom_system_prompt += f"- {pref_key}: {pref_value}\n"
+        
         # Đặt lại biến cờ
         st.session_state.processing_suggestion = False
         del st.session_state.selected_suggestion
+        
+        # Kích hoạt phản hồi từ trợ lý AI - sử dụng cách tiếp cận khác
+        with st.chat_message("assistant"):
+            response_placeholder = st.empty()
+            full_response = ""
+            
+            # Sử dụng trực tiếp OpenAI API thay vì stream_llm_response
+            try:
+                client = OpenAI(api_key=openai_api_key)
+                messages = [{"role": "system", "content": custom_system_prompt}, 
+                           {"role": "user", "content": suggestion}]
+                
+                for chunk in client.chat.completions.create(
+                    model=openai_model,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=2048,
+                    stream=True,
+                ):
+                    content = chunk.choices[0].delta.content or ""
+                    full_response += content
+                    response_placeholder.markdown(full_response)
+                
+                # Thêm phản hồi vào session state sau khi hoàn thành
+                st.session_state.messages.append({
+                    "role": "assistant", 
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": full_response,
+                        }
+                    ]})
+                
+                # Xử lý phản hồi để trích xuất lệnh
+                process_assistant_response(full_response)
+                
+            except Exception as e:
+                st.error(f"Có lỗi xảy ra: {str(e)}")
     else:
         # Tạo và lưu danh sách câu hỏi đề xuất vào session state nếu chưa có
         if "suggestion_list" not in st.session_state or st.session_state.current_member != st.session_state.get("last_suggestion_member", None):
