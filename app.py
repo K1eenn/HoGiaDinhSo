@@ -327,7 +327,7 @@ def update_allergies(member_id, allergies):
 
 # Hàm tạo câu hỏi đề xuất dựa trên thông tin thành viên
 def generate_suggested_questions(member_id=None):
-    questions = []
+    """Sinh câu hỏi đề xuất dựa trên thông tin và sở thích của thành viên gia đình"""
     
     # Câu hỏi chung nếu không chọn thành viên cụ thể
     if not member_id:
@@ -341,31 +341,121 @@ def generate_suggested_questions(member_id=None):
     
     # Lấy thông tin thành viên
     member = family_data.get(member_id)
-    if not member:
-        return questions
+    if not member or not isinstance(member, dict):
+        return []
     
+    questions = []
     name = member.get("name", "")
-    preferences = member.get("preferences", {})
-    allergies = member.get("allergies", [])
+    preferences = member.get("preferences", {}) if isinstance(member.get("preferences"), dict) else {}
+    allergies = member.get("allergies", []) if isinstance(member.get("allergies"), list) else []
     
-    # Tạo câu hỏi dựa trên sở thích
-    if preferences.get("food"):
-        questions.append(f"Có món nào ngon làm từ {preferences.get('food')} không?")
-    
-    if preferences.get("hobby"):
-        questions.append(f"Tìm hoạt động liên quan đến {preferences.get('hobby')} gần đây")
-        questions.append(f"Thêm sự kiện {preferences.get('hobby')} vào cuối tuần")
-    
-    # Câu hỏi liên quan đến dị ứng
-    if allergies:
-        allergies_str = ", ".join(allergies)
-        questions.append(f"Món ăn nào an toàn cho người bị dị ứng {allergies_str}?")
-        questions.append(f"Thay thế cho {allergies_str} trong nấu ăn")
-    
-    # Thêm các câu hỏi cá nhân hóa khác
+    # Câu hỏi quản lý cơ bản
     questions.append(f"Thêm sinh nhật của {name}")
     questions.append(f"Thêm sự kiện đặc biệt cho {name}")
     questions.append(f"Gợi ý quà tặng cho {name}")
+    
+    # Tạo câu hỏi dựa trên sở thích món ăn
+    food_preference = preferences.get("food", "")
+    if food_preference:
+        # Mẫu câu hỏi về món ăn
+        food_question_templates = [
+            f"Có món nào ngon làm từ {food_preference} không?",
+            f"Công thức làm món {food_preference} ngon nhất?",
+            f"Địa điểm ăn {food_preference} nổi tiếng?",
+            f"Cách chế biến {food_preference} đơn giản tại nhà?",
+            f"Lợi ích sức khỏe của {food_preference}?",
+            f"Xuất xứ và lịch sử của món {food_preference}?",
+            f"Cách kết hợp {food_preference} với các nguyên liệu khác?",
+            f"Các biến thể món ăn từ {food_preference} trên thế giới?",
+            f"{food_preference} có bao nhiêu calo?",
+            f"Cách bảo quản {food_preference} tốt nhất?"
+        ]
+        
+        # Thêm 2-3 câu hỏi về món ăn vào danh sách
+        import random
+        food_questions = random.sample(food_question_templates, min(3, len(food_question_templates)))
+        questions.extend(food_questions)
+    
+    # Tạo câu hỏi dựa trên sở thích hoạt động
+    hobby_preference = preferences.get("hobby", "")
+    if hobby_preference:
+        # Chia nhỏ sở thích thành các từ khóa chính
+        hobby_keywords = [hobby_preference]
+        if " và " in hobby_preference:
+            hobby_keywords = hobby_preference.split(" và ")
+        elif "," in hobby_preference:
+            hobby_keywords = [h.strip() for h in hobby_preference.split(",")]
+        
+        for hobby in hobby_keywords:
+            hobby = hobby.strip()
+            if not hobby:
+                continue
+                
+            # Mẫu câu hỏi chung cho mọi loại sở thích
+            hobby_templates = [
+                f"Thông tin mới nhất về {hobby}?",
+                f"Xu hướng {hobby} hiện nay?",
+                f"Các sự kiện {hobby} sắp tới?",
+                f"Người nổi tiếng trong lĩnh vực {hobby}?",
+                f"Cách bắt đầu tìm hiểu về {hobby}?",
+                f"Địa điểm tốt nhất để thưởng thức/tham gia {hobby}?",
+                f"Lịch sử phát triển của {hobby}?",
+                f"Tác động của {hobby} đến sức khỏe và đời sống?",
+                f"Cộng đồng {hobby} gần đây có gì mới?",
+                f"Làm thế nào để nâng cao kỹ năng {hobby}?",
+                f"Thiết bị/dụng cụ cần thiết cho {hobby}?",
+                f"Cuộc thi/giải đấu {hobby} đáng chú ý?",
+                f"Những người giỏi nhất về {hobby} hiện nay là ai?",
+                f"{hobby} đang có xu hướng gì trong năm nay?",
+                f"Tiến bộ công nghệ mới nhất liên quan đến {hobby}?"
+            ]
+            
+            # Thêm 2-3 câu hỏi về sở thích vào danh sách
+            import random
+            selected_hobby_questions = random.sample(hobby_templates, min(3, len(hobby_templates)))
+            questions.extend(selected_hobby_questions)
+    
+    # Tạo câu hỏi dựa trên màu sắc yêu thích
+    color_preference = preferences.get("color", "")
+    if color_preference:
+        # Mẫu câu hỏi về màu sắc
+        color_templates = [
+            f"Ý nghĩa của màu {color_preference}?",
+            f"Cách phối đồ với màu {color_preference}?",
+            f"Trang trí nhà với màu {color_preference}?",
+            f"Tâm lý học về màu {color_preference}?",
+            f"Màu {color_preference} phản ánh tính cách gì?"
+        ]
+        
+        # Thêm 1-2 câu hỏi về màu sắc
+        import random
+        color_questions = random.sample(color_templates, min(2, len(color_templates)))
+        questions.extend(color_questions)
+    
+    # Tạo câu hỏi liên quan đến dị ứng
+    if allergies:
+        # Tạo câu hỏi cho mỗi loại dị ứng
+        for allergy in allergies:
+            allergy_templates = [
+                f"Món ăn nào an toàn cho người dị ứng {allergy}?",
+                f"Thay thế {allergy} bằng gì trong nấu ăn?",
+                f"Triệu chứng dị ứng {allergy} là gì?",
+                f"Cách phòng tránh tiếp xúc với {allergy}?",
+                f"Điều trị dị ứng {allergy} như thế nào?"
+            ]
+            
+            # Thêm 1 câu hỏi về dị ứng
+            import random
+            if allergy_templates:
+                allergy_question = random.choice(allergy_templates)
+                questions.append(allergy_question)
+    
+    # Đảm bảo không trả về quá nhiều câu hỏi và luôn thay đổi
+    import random
+    if len(questions) > 10:
+        return random.sample(questions, 10)
+    elif len(questions) > 5:
+        return random.sample(questions, 5)
     
     return questions
 
@@ -801,7 +891,8 @@ def main():
             st.info("Không có câu hỏi đề xuất cho thành viên này.")
         else:
             for i, question in enumerate(suggested_questions[:5]):  # Giới hạn 5 câu hỏi
-                if st.button(f"🔍 {question}", key=f"question_{i}", use_container_width=True):
+                button_key = f"question_{i}_{selected_member_name}"
+                if st.button(f"🔍 {question}", key=button_key, use_container_width=True):
                     # Khi người dùng nhấn vào câu hỏi, thêm nó vào vùng chat
                     st.session_state.messages.append({
                         "role": "user", 
