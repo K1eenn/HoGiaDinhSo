@@ -15,6 +15,7 @@ dotenv.load_dotenv()
 FAMILY_DATA_FILE = "family_data.json"
 EVENTS_DATA_FILE = "events_data.json"
 NOTES_DATA_FILE = "notes_data.json"
+CHAT_HISTORY_FILE = "chat_history.json"  # Thêm file lưu trữ lịch sử chat
 
 # Thiết lập log để debug
 import logging
@@ -80,7 +81,7 @@ def save_data(file_path, data):
 
 # Kiểm tra và đảm bảo cấu trúc dữ liệu đúng
 def verify_data_structure():
-    global family_data, events_data, notes_data
+    global family_data, events_data, notes_data, chat_history
     
     # Đảm bảo tất cả dữ liệu là từ điển
     if not isinstance(family_data, dict):
@@ -94,6 +95,10 @@ def verify_data_structure():
     if not isinstance(notes_data, dict):
         print("notes_data không phải từ điển. Khởi tạo lại.")
         notes_data = {}
+        
+    if not isinstance(chat_history, dict):
+        print("chat_history không phải từ điển. Khởi tạo lại.")
+        chat_history = {}
     
     # Kiểm tra và sửa các dữ liệu thành viên
     members_to_fix = []
@@ -109,11 +114,13 @@ def verify_data_structure():
     save_data(FAMILY_DATA_FILE, family_data)
     save_data(EVENTS_DATA_FILE, events_data)
     save_data(NOTES_DATA_FILE, notes_data)
+    save_data(CHAT_HISTORY_FILE, chat_history)
 
 # Tải dữ liệu ban đầu
 family_data = load_data(FAMILY_DATA_FILE)
 events_data = load_data(EVENTS_DATA_FILE)
 notes_data = load_data(NOTES_DATA_FILE)
+chat_history = load_data(CHAT_HISTORY_FILE)  # Tải lịch sử chat
 
 # Kiểm tra và sửa cấu trúc dữ liệu
 verify_data_structure()
@@ -125,8 +132,69 @@ def get_image_base64(image_raw):
     img_byte = buffered.getvalue()
     return base64.b64encode(img_byte).decode('utf-8')
 
+# Hàm tạo tóm tắt lịch sử chat
+def generate_chat_summary(messages, api_key):
+    """Tạo tóm tắt từ lịch sử trò chuyện"""
+    if not messages or len(messages) < 3:  # Cần ít nhất một vài tin nhắn để tạo tóm tắt
+        return "Chưa có đủ tin nhắn để tạo tóm tắt."
+    
+    # Chuẩn bị dữ liệu cho API
+    content_texts = []
+    for message in messages:
+        if "content" in message:
+            # Xử lý cả tin nhắn văn bản và hình ảnh
+            if isinstance(message["content"], list):
+                for content in message["content"]:
+                    if content["type"] == "text":
+                        content_texts.append(f"{message['role'].upper()}: {content['text']}")
+            else:
+                content_texts.append(f"{message['role'].upper()}: {message['content']}")
+    
+    # Ghép tất cả nội dung lại
+    full_content = "\n".join(content_texts)
+    
+    # Gọi API để tạo tóm tắt
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=openai_model,
+            messages=[
+                {"role": "system", "content": "Bạn là trợ lý tạo tóm tắt. Hãy tóm tắt cuộc trò chuyện dưới đây thành 1-3 câu ngắn gọn, tập trung vào các thông tin và yêu cầu chính."},
+                {"role": "user", "content": f"Tóm tắt cuộc trò chuyện sau:\n\n{full_content}"}
+            ],
+            temperature=0.3,
+            max_tokens=150
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logger.error(f"Lỗi khi tạo tóm tắt: {e}")
+        return "Không thể tạo tóm tắt vào lúc này."
+
+# Hàm lưu lịch sử trò chuyện cho người dùng hiện tại
+def save_chat_history(member_id, messages, summary=None):
+    """Lưu lịch sử chat cho một thành viên cụ thể"""
+    if member_id not in chat_history:
+        chat_history[member_id] = []
+    
+    # Tạo bản ghi mới
+    history_entry = {
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "messages": messages,
+        "summary": summary if summary else ""
+    }
+    
+    # Thêm vào lịch sử và giới hạn số lượng
+    chat_history[member_id].insert(0, history_entry)  # Thêm vào đầu danh sách
+    
+    # Giới hạn lưu tối đa 10 cuộc trò chuyện gần nhất
+    if len(chat_history[member_id]) > 10:
+        chat_history[member_id] = chat_history[member_id][:10]
+    
+    # Lưu vào file
+    save_data(CHAT_HISTORY_FILE, chat_history)
+
 # Hàm stream phản hồi từ GPT-4o-mini
-def stream_llm_response(api_key, system_prompt=""):
+def stream_llm_response(api_key, system_prompt="", current_member=None):
     """Hàm tạo và xử lý phản hồi từ mô hình AI"""
     response_message = ""
     
@@ -185,7 +253,7 @@ def stream_llm_response(api_key, system_prompt=""):
         logger.info(f"Phản hồi đầy đủ từ trợ lý: {response_message[:200]}...")
         
         # Xử lý phản hồi để trích xuất lệnh
-        process_assistant_response(response_message)
+        process_assistant_response(response_message, current_member)
         
         # Thêm phản hồi vào session state
         st.session_state.messages.append({
@@ -196,12 +264,20 @@ def stream_llm_response(api_key, system_prompt=""):
                     "text": response_message,
                 }
             ]})
+        
+        # Nếu đang chat với một thành viên cụ thể, lưu lịch sử
+        if current_member:
+            # Tạo tóm tắt cuộc trò chuyện
+            summary = generate_chat_summary(st.session_state.messages, api_key)
+            # Lưu lịch sử
+            save_chat_history(current_member, st.session_state.messages, summary)
+            
     except Exception as e:
         logger.error(f"Lỗi khi tạo phản hồi từ OpenAI: {e}")
         error_message = f"Có lỗi xảy ra: {str(e)}"
         yield error_message
 
-def process_assistant_response(response):
+def process_assistant_response(response, current_member=None):
     """Hàm xử lý lệnh từ phản hồi của trợ lý"""
     try:
         logger.info(f"Xử lý phản hồi của trợ lý, độ dài: {len(response)}")
@@ -226,6 +302,10 @@ def process_assistant_response(response):
                         if relative_date:
                             details['date'] = relative_date.strftime("%Y-%m-%d")
                             logger.info(f"Đã chuyển đổi ngày thành: {details['date']}")
+                    
+                    # Thêm thông tin về người tạo sự kiện
+                    if current_member:
+                        details['created_by'] = current_member
                     
                     logger.info(f"Thêm sự kiện: {details.get('title', 'Không tiêu đề')}")
                     success = add_event(details)
@@ -285,6 +365,9 @@ def process_assistant_response(response):
                                 update_preference(details)
                                 st.success(f"Đã cập nhật sở thích!")
                             elif cmd_type == "ADD_NOTE":
+                                # Thêm thông tin về người tạo ghi chú
+                                if current_member:
+                                    details['created_by'] = current_member
                                 add_note(details)
                                 st.success(f"Đã thêm ghi chú!")
                 except Exception as e:
@@ -326,6 +409,7 @@ def add_event(details):
             "time": details.get("time", ""),
             "description": details.get("description", ""),
             "participants": details.get("participants", []),
+            "created_by": details.get("created_by", ""),  # Thêm người tạo sự kiện
             "created_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         save_data(EVENTS_DATA_FILE, events_data)
@@ -372,9 +456,26 @@ def add_note(details):
         "title": details.get("title", ""),
         "content": details.get("content", ""),
         "tags": details.get("tags", []),
+        "created_by": details.get("created_by", ""),  # Thêm người tạo ghi chú
         "created_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     save_data(NOTES_DATA_FILE, notes_data)
+
+# Lọc sự kiện theo người dùng
+def filter_events_by_member(member_id=None):
+    """Lọc sự kiện theo thành viên cụ thể"""
+    if not member_id:
+        return events_data  # Trả về tất cả sự kiện nếu không có ID
+    
+    filtered_events = {}
+    for event_id, event in events_data.items():
+        # Lọc những sự kiện mà thành viên tạo hoặc tham gia
+        if (event.get("created_by") == member_id or 
+            (member_id in family_data and 
+             family_data[member_id].get("name") in event.get("participants", []))):
+            filtered_events[event_id] = event
+    
+    return filtered_events
 
 def main():
     # --- Cấu hình trang ---
@@ -387,12 +488,60 @@ def main():
 
     # --- Tiêu đề ---
     st.html("""<h1 style="text-align: center; color: #6ca395;">👨‍👩‍👧‍👦 <i>Trợ lý Gia đình</i> 💬</h1>""")
+    
+    # --- Khởi tạo session state ---
+    if "current_member" not in st.session_state:
+        st.session_state.current_member = None  # ID thành viên đang trò chuyện
 
     # --- Thanh bên ---
     with st.sidebar:
         default_openai_api_key = os.getenv("OPENAI_API_KEY") if os.getenv("OPENAI_API_KEY") is not None else ""
         with st.popover("🔐 OpenAI API Key"):
             openai_api_key = st.text_input("Nhập OpenAI API Key của bạn:", value=default_openai_api_key, type="password")
+        
+        # Chọn người dùng hiện tại
+        st.write("## 👤 Chọn người dùng")
+        
+        # Tạo danh sách tên thành viên và ID
+        member_options = {"Chung (Không cá nhân hóa)": None}
+        for member_id, member in family_data.items():
+            if isinstance(member, dict) and "name" in member:
+                member_options[member["name"]] = member_id
+        
+        # Dropdown chọn người dùng
+        selected_member_name = st.selectbox(
+            "Bạn đang trò chuyện với tư cách ai?",
+            options=list(member_options.keys()),
+            index=0
+        )
+        
+        # Cập nhật người dùng hiện tại
+        new_member_id = member_options[selected_member_name]
+        
+        # Nếu người dùng thay đổi, cập nhật session state và khởi tạo lại tin nhắn
+        if new_member_id != st.session_state.current_member:
+            st.session_state.current_member = new_member_id
+            if "messages" in st.session_state:
+                st.session_state.pop("messages", None)
+                st.rerun()
+        
+        # Hiển thị thông tin người dùng hiện tại
+        if st.session_state.current_member:
+            member = family_data[st.session_state.current_member]
+            st.info(f"Đang trò chuyện với tư cách: **{member.get('name')}**")
+            
+            # Hiển thị lịch sử trò chuyện trước đó
+            if st.session_state.current_member in chat_history and chat_history[st.session_state.current_member]:
+                with st.expander("📜 Lịch sử trò chuyện trước đó"):
+                    for idx, history in enumerate(chat_history[st.session_state.current_member]):
+                        st.write(f"**{history.get('timestamp')}**")
+                        st.write(f"*{history.get('summary', 'Không có tóm tắt')}*")
+                        
+                        # Nút để tải lại cuộc trò chuyện cũ
+                        if st.button(f"Tải lại cuộc trò chuyện này", key=f"load_chat_{idx}"):
+                            st.session_state.messages = history.get('messages', [])
+                            st.rerun()
+                        st.divider()
         
         st.write("## Thông tin Gia đình")
         
@@ -423,7 +572,7 @@ def main():
                     save_data(FAMILY_DATA_FILE, family_data)
                     st.success(f"Đã thêm {member_name} vào gia đình!")
         
-                # Xem và chỉnh sửa thành viên gia đình
+        # Xem và chỉnh sửa thành viên gia đình
         with st.expander("👥 Thành viên gia đình"):
             if not family_data:
                 st.write("Chưa có thành viên nào trong gia đình")
@@ -525,17 +674,50 @@ def main():
                         "time": event_time.strftime("%H:%M"),
                         "description": event_desc,
                         "participants": participants,
+                        "created_by": st.session_state.current_member,  # Lưu người tạo
                         "created_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
                     save_data(EVENTS_DATA_FILE, events_data)
                     st.success(f"Đã thêm sự kiện: {event_title}!")
         
-        # Xem sự kiện sắp tới
-        with st.expander("📆 Sự kiện sắp tới"):
-                            # Sắp xếp sự kiện theo ngày (với xử lý lỗi)
+        # Xem sự kiện sắp tới - đã được lọc theo người dùng
+        with st.expander("📆 Sự kiện"):
+            # Lọc sự kiện theo người dùng hiện tại
+            filtered_events = (
+                filter_events_by_member(st.session_state.current_member) 
+                if st.session_state.current_member 
+                else events_data
+            )
+            
+            # Phần hiển thị chế độ lọc
+            mode = st.radio(
+                "Chế độ hiển thị:",
+                ["Tất cả sự kiện", "Sự kiện của tôi", "Sự kiện tôi tham gia"],
+                horizontal=True,
+                disabled=not st.session_state.current_member
+            )
+            
+            # Lọc thêm theo chế độ được chọn
+            display_events = {}
+            current_member_name = ""
+            if st.session_state.current_member:
+                current_member_name = family_data[st.session_state.current_member].get("name", "")
+            
+            if mode == "Sự kiện của tôi" and st.session_state.current_member:
+                for event_id, event in filtered_events.items():
+                    if event.get("created_by") == st.session_state.current_member:
+                        display_events[event_id] = event
+            elif mode == "Sự kiện tôi tham gia" and current_member_name:
+                for event_id, event in filtered_events.items():
+                    if current_member_name in event.get("participants", []):
+                        display_events[event_id] = event
+            else:
+                display_events = filtered_events
+            
+            # Sắp xếp sự kiện theo ngày (với xử lý lỗi)
             try:
                 sorted_events = sorted(
-                    events_data.items(),
+                    display_events.items(),
                     key=lambda x: (x[1].get("date", ""), x[1].get("time", ""))
                 )
             except Exception as e:
@@ -543,7 +725,7 @@ def main():
                 sorted_events = []
             
             if not sorted_events:
-                st.write("Không có sự kiện nào sắp tới")
+                st.write("Không có sự kiện nào")
             
             for event_id, event in sorted_events:
                 st.write(f"**{event.get('title', 'Sự kiện không tiêu đề')}**")
@@ -554,6 +736,11 @@ def main():
                 
                 if event.get('participants'):
                     st.write(f"👥 {', '.join(event.get('participants', []))}")
+                
+                # Hiển thị người tạo
+                if event.get('created_by') and event.get('created_by') in family_data:
+                    creator_name = family_data[event.get('created_by')].get("name", "")
+                    st.write(f"👤 Tạo bởi: {creator_name}")
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -624,12 +811,19 @@ def main():
         # Quản lý ghi chú
         st.write("## Ghi chú")
         
-        # Xem ghi chú
+        # Xem ghi chú - lọc theo người dùng hiện tại
         with st.expander("📝 Ghi chú"):
+            # Lọc ghi chú theo người dùng hiện tại
+            if st.session_state.current_member:
+                filtered_notes = {note_id: note for note_id, note in notes_data.items() 
+                               if note.get("created_by") == st.session_state.current_member}
+            else:
+                filtered_notes = notes_data
+            
             # Sắp xếp ghi chú theo ngày tạo (với xử lý lỗi)
             try:
                 sorted_notes = sorted(
-                    notes_data.items(),
+                    filtered_notes.items(),
                     key=lambda x: x[1].get("created_on", ""),
                     reverse=True
                 )
@@ -648,6 +842,11 @@ def main():
                     tags = ', '.join([f"#{tag}" for tag in note['tags']])
                     st.write(f"🏷️ {tags}")
                 
+                # Hiển thị người tạo
+                if note.get('created_by') and note.get('created_by') in family_data:
+                    creator_name = family_data[note.get('created_by')].get("name", "")
+                    st.write(f"👤 Tạo bởi: {creator_name}")
+                
                 col1, col2 = st.columns(2)
                 with col2:
                     if st.button(f"Xóa", key=f"delete_note_{note_id}"):
@@ -661,6 +860,11 @@ def main():
         
         def reset_conversation():
             if "messages" in st.session_state and len(st.session_state.messages) > 0:
+                # Trước khi xóa, lưu lịch sử trò chuyện nếu đang trò chuyện với một thành viên
+                if st.session_state.current_member and openai_api_key:
+                    summary = generate_chat_summary(st.session_state.messages, openai_api_key)
+                    save_chat_history(st.session_state.current_member, st.session_state.messages, summary)
+                # Xóa tin nhắn
                 st.session_state.pop("messages", None)
 
         st.button(
@@ -683,6 +887,8 @@ def main():
         - 📅 Quản lý các sự kiện gia đình
         - 📝 Tạo và lưu trữ các ghi chú
         - 💬 Trò chuyện với trợ lý AI để cập nhật thông tin
+        - 👤 Cá nhân hóa trò chuyện theo từng thành viên
+        - 📜 Lưu lịch sử trò chuyện và tạo tóm tắt tự động
         
         Để bắt đầu, hãy nhập OpenAI API Key của bạn ở thanh bên trái.
         """)
@@ -745,6 +951,13 @@ def main():
                             on_change=add_image_to_messages,
                         )
 
+        # Hiển thị banner thông tin người dùng hiện tại
+        if st.session_state.current_member and st.session_state.current_member in family_data:
+            member_name = family_data[st.session_state.current_member].get("name", "")
+            st.info(f"👤 Đang trò chuyện với tư cách: **{member_name}**")
+        elif st.session_state.current_member is None:
+            st.info("👨‍👩‍👧‍👦 Đang trò chuyện trong chế độ chung")
+
         # System prompt cho trợ lý
         system_prompt = f"""
         Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
@@ -784,6 +997,22 @@ def main():
         - Nếu là hình ảnh hoạt động gia đình, hãy mô tả hoạt động và đề xuất cách ghi nhớ khoảnh khắc đó
         - Với bất kỳ hình ảnh nào, hãy giúp người dùng liên kết nó với thành viên gia đình hoặc sự kiện nếu phù hợp
         
+        """
+        
+        # Thêm thông tin về người dùng hiện tại
+        if st.session_state.current_member and st.session_state.current_member in family_data:
+            current_member = family_data[st.session_state.current_member]
+            system_prompt += f"""
+            THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:
+            Bạn đang trò chuyện với: {current_member.get('name')}
+            Tuổi: {current_member.get('age', '')}
+            Sở thích: {json.dumps(current_member.get('preferences', {}), ensure_ascii=False)}
+            
+            QUAN TRỌNG: Hãy điều chỉnh cách giao tiếp và đề xuất phù hợp với người dùng này. Các sự kiện và ghi chú sẽ được ghi danh nghĩa người này tạo.
+            """
+        
+        # Thêm thông tin dữ liệu
+        system_prompt += f"""
         Thông tin hiện tại về gia đình:
         {json.dumps(family_data, ensure_ascii=False, indent=2)}
         
@@ -832,7 +1061,11 @@ def main():
                 st.markdown(prompt or audio_prompt)
 
             with st.chat_message("assistant"):
-                st.write_stream(stream_llm_response(api_key=openai_api_key, system_prompt=system_prompt))
+                st.write_stream(stream_llm_response(
+                    api_key=openai_api_key, 
+                    system_prompt=system_prompt,
+                    current_member=st.session_state.current_member
+                ))
 
 if __name__=="__main__":
     main()
