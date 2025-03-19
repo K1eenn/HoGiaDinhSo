@@ -1030,7 +1030,7 @@ def main():
                         "added_on": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
                     save_data(FAMILY_DATA_FILE, family_data)
-                        st.success(f"Đã thêm {member_name} vào gia đình!")
+                    st.success(f"Đã thêm {member_name} vào gia đình!")
                     st.rerun()  # Tải lại trang để cập nhật danh sách người dùng
         
         # Xem và chỉnh sửa thành viên gia đình
