@@ -109,12 +109,25 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             Ngày tháng: {context['current_date']}
             
             Yêu cầu:
-            1. Câu hỏi phải ngắn gọn, cụ thể và hấp dẫn
-            2. Câu hỏi phải đa dạng về chủ đề (ẩm thực, sự kiện gia đình, sở thích, sức khỏe, v.v.)
-            3. Câu hỏi phải phù hợp với thời điểm trong ngày và thông tin cá nhân
-            4. Sử dụng thông tin cá nhân để tạo câu hỏi cá nhân hóa
-            5. Chỉ trả về danh sách các câu hỏi, mỗi câu hỏi trên một dòng
-            6. Không thêm đánh số hoặc dấu gạch đầu dòng
+            1. Tạo câu hỏi cụ thể mang tính thông tin cao (ví dụ: "Top 10 phim hay nhất 2023" thay vì "Bạn có muốn xem phim không?")
+            2. Đưa ra thông tin cụ thể như kết quả thể thao, tin tức hiện tại, sự kiện văn hóa, công thức nấu ăn, v.v.
+            3. Câu hỏi phải thể hiện như bạn đã biết thông tin và muốn chia sẻ (ví dụ: "Bạn đã biết bộ phim X vừa đạt giải Y chưa?")
+            4. Sử dụng thông tin cá nhân để tạo câu hỏi phù hợp với sở thích của người dùng
+            5. Đưa ra gợi ý cụ thể về món ăn, hoạt động, sự kiện thay vì câu hỏi mở
+            6. Chỉ trả về danh sách các câu hỏi, mỗi câu hỏi trên một dòng
+            7. Không thêm đánh số hoặc dấu gạch đầu dòng
+            
+            Ví dụ tốt:
+            - "Top 10 phim hành động hay nhất 2023 có những phim nào?"
+            - "Công thức làm bánh mì nguyên cám giảm cân bạn đã thử chưa?"
+            - "Kết quả trận bóng đá Việt Nam vs Thái Lan tối qua: 2-1"
+            - "5 hoạt động ngoài trời giúp trẻ phát triển trí thông minh"
+            - "Cách làm món gà rang muối đơn giản tại nhà trong 30 phút"
+            
+            Ví dụ không tốt:
+            - "Bạn có muốn xem phim không?"
+            - "Bạn thích ăn gì?"
+            - "Bạn có sự kiện thể thao nào muốn theo dõi không?"
             
             Trả về chính xác {max_questions} câu hỏi.
             """
@@ -143,7 +156,7 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             logger.error(f"Lỗi khi tạo câu hỏi với OpenAI: {e}")
             # Tiếp tục với phương thức 2 (dự phòng)
     
-    # Phương thức 2: Dùng mẫu câu + thông tin cá nhân nếu không thể sử dụng OpenAI API
+            # Phương thức 2: Dùng mẫu câu + thông tin cá nhân nếu không thể sử dụng OpenAI API
     if not questions:
         logger.info("Sử dụng phương pháp mẫu câu để tạo câu hỏi gợi ý")
         
@@ -151,63 +164,77 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
         random_seed = int(hashlib.md5(f"{datetime.datetime.now().strftime('%Y-%m-%d_%H')}_{member_id or 'guest'}".encode()).hexdigest(), 16) % 10000
         random.seed(random_seed)
         
-        # Mẫu câu hỏi theo nhiều chủ đề khác nhau
+        # Mẫu câu hỏi cụ thể theo nhiều chủ đề khác nhau
         question_templates = {
             "food": [
-                "Gợi ý món {food} cho bữa {meal} hôm nay?",
-                "Làm thế nào để nấu món {food} ngon hơn?",
-                "Có công thức nào đơn giản cho món {food} không?",
-                "Kết hợp món {food} với món gì cho bữa {meal}?",
-                "Gợi ý thực đơn cho bữa {meal} với {food}",
-                "Món {food} phiên bản healthy nấu như thế nào?"
+                "Top 10 món {food} ngon nhất Việt Nam bạn nên thử một lần trong đời",
+                "Công thức làm món {food} kiểu mới chỉ với 15 phút chuẩn bị",
+                "5 biến tấu món {food} cho bữa {meal} giúp trẻ hết biếng ăn",
+                "Bí quyết làm món {food} ngon như nhà hàng 5 sao của đầu bếp nổi tiếng",
+                "Cách làm món {food} chuẩn vị {season} tốt cho sức khỏe",
+                "3 cách chế biến món {food} giảm calo mà vẫn thơm ngon"
             ],
-            "event": [
-                "Làm gì để chuẩn bị cho {event} trong {days} ngày tới?",
-                "Cần mua những gì cho {event} sắp tới?",
-                "Ý tưởng quà tặng cho {event}?",
-                "Kế hoạch cho {event} sắp tới của gia đình là gì?",
-                "Gợi ý hoạt động thú vị cho {event}"
+            "entertainment": [
+                "Top 5 phim hành động hay nhất 2024 bạn không nên bỏ lỡ",
+                "Kết quả trận đấu bóng đá giữa Việt Nam - Thái Lan: 2-1",
+                "Lịch chiếu phim bom tấn {season} 2024 tại các rạp",
+                "Danh sách 10 sách best-seller tháng này bạn nên đọc",
+                "Tin mới nhất: Concert của ca sĩ {music_artist} sắp diễn ra tại Việt Nam",
+                "3 trò chơi board game mới nhất được giới trẻ yêu thích"
             ],
-            "hobby": [
-                "Có sự kiện nào về {hobby} sắp diễn ra không?",
-                "Làm thế nào để cải thiện kỹ năng {hobby}?",
-                "Hoạt động liên quan đến {hobby} thích hợp cho cả gia đình?",
-                "Có thể kết hợp {hobby} với hoạt động gia đình như thế nào?",
-                "Gợi ý nơi thực hành {hobby} gần đây?"
+            "technology": [
+                "Đánh giá chi tiết iPhone 16 Pro Max: Có đáng để nâng cấp?",
+                "5 tính năng AI mới nhất trên smartphone bạn nên biết",
+                "So sánh chi tiết Samsung Galaxy S24 Ultra và iPhone 15 Pro Max",
+                "Cách tối ưu hóa pin laptop tăng thời lượng sử dụng lên 30%",
+                "Top 5 ứng dụng giúp tăng năng suất làm việc tại nhà",
+                "Đánh giá chi tiết laptop gaming mới nhất 2024"
             ],
             "health": [
-                "Thực đơn healthy cho bữa {meal} hôm nay?",
-                "Bài tập thể dục ngắn phù hợp vào buổi {time_of_day}?",
-                "Cách cải thiện chế độ ăn uống cho cả gia đình?",
-                "Hoạt động thể chất toàn gia đình cho ngày cuối tuần?",
-                "Mẹo cải thiện sức khỏe tinh thần sau ngày làm việc"
+                "5 bài tập cardio giảm mỡ bụng hiệu quả chỉ trong 10 phút mỗi ngày",
+                "Chế độ ăn Địa Trung Hải: Lợi ích sức khỏe được khoa học chứng minh",
+                "3 loại trà thảo mộc giúp giảm stress và cải thiện giấc ngủ",
+                "Cách phòng tránh cúm mùa trong thời điểm giao mùa {season}",
+                "Thực đơn 7 ngày giàu protein cho người tập gym",
+                "Những dấu hiệu thiếu vitamin D bạn không nên bỏ qua"
             ],
             "family": [
-                "Hoạt động gắn kết gia đình cho ngày {day}?",
-                "Trò chơi gia đình thú vị cho buổi tối?",
-                "Ý tưởng cho buổi họp gia đình định kỳ?",
-                "Làm gì để cải thiện không khí gia đình?",
-                "Kế hoạch cuối tuần cho cả gia đình?"
+                "10 hoạt động cuối tuần giúp gắn kết gia đình không tốn nhiều chi phí",
+                "5 trò chơi phát triển trí thông minh cho trẻ 3-6 tuổi",
+                "Bí quyết dạy trẻ kỹ năng quản lý tài chính từ nhỏ",
+                "Cách tổ chức không gian học tập hiệu quả cho trẻ tại nhà",
+                "Lịch trình một ngày khoa học cho gia đình có trẻ nhỏ",
+                "Cách giải quyết mâu thuẫn giữa anh chị em trong gia đình"
             ],
-            "seasonal": [
-                "Hoạt động mùa {season} phù hợp với cả gia đình?",
-                "Thực đơn phù hợp với thời tiết {weather} hôm nay?",
-                "Chuẩn bị gì cho mùa {season} sắp tới?",
-                "Ý tưởng trang trí nhà theo mùa {season}?",
-                "Món ăn đặc trưng của mùa {season} là gì?"
+            "travel": [
+                "Top 5 điểm du lịch Việt Nam đẹp nhất vào mùa {season}",
+                "Kinh nghiệm du lịch tiết kiệm cho gia đình 4 người",
+                "Những món đặc sản không thể bỏ qua khi du lịch miền Trung",
+                "Cẩm nang du lịch Đà Lạt: Thời điểm đẹp nhất và điểm đến hấp dẫn",
+                "5 resort thân thiện với trẻ em được đánh giá tốt nhất 2024",
+                "Kinh nghiệm đặt vé máy bay giá rẻ cho kỳ nghỉ sắp tới"
             ],
-            "general": [
-                "Hôm nay có tin tức gì thú vị cho gia đình?",
-                "Gợi ý kế hoạch chi tiêu hợp lý cho gia đình?",
-                "Cách sắp xếp lịch trình hợp lý cho mọi người?",
-                "Mẹo tổ chức không gian sống gọn gàng hơn?",
-                "Ý tưởng tiết kiệm thời gian cho các công việc nhà?"
+            "education": [
+                "5 phương pháp học tiếng Anh hiệu quả cho trẻ em",
+                "Top 10 kênh YouTube giáo dục chất lượng cao cho học sinh",
+                "Cách giúp trẻ tập trung học tập tại nhà hiệu quả",
+                "Các ứng dụng học toán miễn phí được giáo viên đánh giá cao",
+                "Lộ trình học lập trình cho trẻ từ 10 tuổi",
+                "Phương pháp đọc sách hiệu quả giúp ghi nhớ 80% nội dung"
+            ],
+            "news": [
+                "Tin nóng: Giá vàng hôm nay tăng mạnh vượt mốc kỷ lục",
+                "Thời tiết {season} miền Bắc: Dự báo mưa dông trên diện rộng",
+                "Tin kinh tế: Lãi suất ngân hàng mới nhất tháng này",
+                "Cập nhật tình hình giao thông: Các tuyến đường kẹt xe giờ cao điểm",
+                "Tin giáo dục: Những thay đổi trong kỳ thi THPT Quốc gia 2024",
+                "Tin y tế: Cảnh báo dịch sốt xuất huyết tại các tỉnh phía Nam"
             ]
         }
         
         # Các biến thay thế trong mẫu câu
         replacements = {
-            "food": ["món tráng miệng", "món chính", "món khai vị", "đồ ăn nhẹ", "món Á", "món Âu", "món truyền thống"],
+            "food": ["phở", "bánh mì", "cơm rang", "gỏi cuốn", "bún chả", "bánh xèo", "mì Ý", "sushi", "pizza", "món Hàn Quốc"],
             "meal": ["sáng", "trưa", "tối", "xế"],
             "event": ["sinh nhật", "họp gia đình", "dã ngoại", "tiệc", "kỳ nghỉ"],
             "days": ["vài", "2", "3", "7", "10"],
@@ -215,7 +242,9 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             "time_of_day": ["sáng", "trưa", "chiều", "tối"],
             "day": ["thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ Nhật", "cuối tuần"],
             "season": ["xuân", "hạ", "thu", "đông"],
-            "weather": ["nóng", "lạnh", "mưa", "nắng", "gió"]
+            "weather": ["nóng", "lạnh", "mưa", "nắng", "gió"],
+            "music_artist": ["Sơn Tùng M-TP", "Mỹ Tâm", "BTS", "Taylor Swift", "Adele", "Coldplay", "BlackPink"],
+            "actor": ["Ngô Thanh Vân", "Trấn Thành", "Tom Cruise", "Song Joong Ki", "Scarlett Johansson", "Leonardo DiCaprio"]
         }
         
         # Thay thế các biến bằng thông tin cá nhân nếu có
@@ -265,9 +294,48 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
         replacements["meal"].insert(0, current_meal)
         replacements["time_of_day"].insert(0, current_meal)
         
-        # Chọn các chủ đề ngẫu nhiên để tạo câu hỏi
-        selected_categories = random.sample(list(question_templates.keys()), min(max_questions, len(question_templates)))
+        # Tạo danh sách các chủ đề ưu tiên dựa trên thông tin người dùng
+        priority_categories = []
         
+        # Ưu tiên chủ đề dựa trên sở thích người dùng
+        if member_id and member_id in family_data:
+            preferences = family_data[member_id].get("preferences", {})
+            
+            if preferences.get("food"):
+                priority_categories.append("food")
+            
+            if preferences.get("hobby"):
+                if preferences["hobby"].lower() in ["thể thao", "gym", "chạy bộ", "bóng đá", "bơi lội"]:
+                    priority_categories.append("health")
+                elif preferences["hobby"].lower() in ["đọc sách", "học", "nghiên cứu"]:
+                    priority_categories.append("education")
+                elif preferences["hobby"].lower() in ["du lịch", "phiêu lưu", "khám phá"]:
+                    priority_categories.append("travel")
+                elif preferences["hobby"].lower() in ["âm nhạc", "phim", "hòa nhạc"]:
+                    priority_categories.append("entertainment")
+                else:
+                    priority_categories.append("hobby")
+        
+        # Thêm tin tức và công nghệ vào danh sách ưu tiên
+        priority_categories.extend(["news", "technology"])
+        
+        # Thêm các chủ đề còn lại
+        all_categories = list(question_templates.keys())
+        remaining_categories = [cat for cat in all_categories if cat not in priority_categories]
+        
+        # Kết hợp danh sách để đảm bảo chủ đề ưu tiên xuất hiện trước
+        combined_categories = priority_categories + remaining_categories
+        
+        # Lấy max_questions chủ đề đầu tiên
+        selected_categories = combined_categories[:max_questions]
+        
+        # Đảm bảo luôn có ít nhất 1 câu hỏi từ news và 1 từ entertainment
+        if "news" not in selected_categories and len(selected_categories) > 2:
+            selected_categories[-1] = "news"
+        if "entertainment" not in selected_categories and len(selected_categories) > 3:
+            selected_categories[-2] = "entertainment"
+        
+        # Tạo câu hỏi dựa trên các chủ đề đã chọn
         for category in selected_categories:
             if len(questions) >= max_questions:
                 break
@@ -284,9 +352,15 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             
             questions.append(question)
         
-        # Đảm bảo đủ số lượng câu hỏi bằng cách thêm từ chủ đề general
-        while len(questions) < max_questions:
-            template = random.choice(question_templates["general"])
+        # Đảm bảo đủ số lượng câu hỏi bằng cách thêm từ chủ đề news và entertainment
+        more_templates = []
+        if len(questions) < max_questions:
+            more_templates.extend(question_templates["news"])
+            more_templates.extend(question_templates["entertainment"])
+            random.shuffle(more_templates)
+        
+        while len(questions) < max_questions and more_templates:
+            template = more_templates.pop(0)
             
             # Thay thế các biến trong mẫu câu
             question = template
