@@ -96,7 +96,7 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             }
             
             prompt = f"""
-            Hãy tạo {max_questions} câu hỏi gợi ý đa dạng và cá nhân hóa cho người dùng trợ lý gia đình dựa trên thông tin sau:
+            Hãy tạo {max_questions} câu gợi ý đa dạng và cá nhân hóa cho người dùng trợ lý gia đình dựa trên thông tin sau:
             
             Thông tin người dùng: {json.dumps(member_info, ensure_ascii=False)}
             
@@ -109,27 +109,27 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             Ngày tháng: {context['current_date']}
             
             Yêu cầu:
-            1. Tạo câu hỏi cụ thể mang tính thông tin cao (ví dụ: "Top 10 phim hay nhất 2023" thay vì "Bạn có muốn xem phim không?")
-            2. Đưa ra thông tin cụ thể như kết quả thể thao, tin tức hiện tại, sự kiện văn hóa, công thức nấu ăn, v.v.
-            3. Câu hỏi phải thể hiện như bạn đã biết thông tin và muốn chia sẻ (ví dụ: "Bạn đã biết bộ phim X vừa đạt giải Y chưa?")
-            4. Sử dụng thông tin cá nhân để tạo câu hỏi phù hợp với sở thích của người dùng
-            5. Đưa ra gợi ý cụ thể về món ăn, hoạt động, sự kiện thay vì câu hỏi mở
-            6. Chỉ trả về danh sách các câu hỏi, mỗi câu hỏi trên một dòng
-            7. Không thêm đánh số hoặc dấu gạch đầu dòng
+            1. Mỗi câu gợi ý nên tập trung vào MỘT sở thích cụ thể, không kết hợp nhiều sở thích
+            2. Mỗi gợi ý phải là một câu THÔNG BÁO hoặc THÔNG TIN, KHÔNG phải câu hỏi
+            3. KHÔNG kết thúc câu gợi ý bằng dấu hỏi hoặc bất kỳ cụm từ nào như "bạn có biết không?", "bạn có muốn không?", v.v.
+            4. Đưa ra thông tin cụ thể, chi tiết và chính xác như thể bạn đang viết một bài đăng trên mạng xã hội
+            5. Mục đích là cung cấp thông tin hữu ích, không phải bắt đầu cuộc trò chuyện
+            6. Luôn tạo ít nhất một gợi ý về bóng đá, phim ảnh, tin tức, ẩm thực nếu có thể
+            7. Chỉ trả về danh sách các câu gợi ý, mỗi câu trên một dòng
+            8. Không thêm đánh số hoặc dấu gạch đầu dòng
             
             Ví dụ tốt:
-            - "Top 10 phim hành động hay nhất 2023 có những phim nào?"
-            - "Công thức làm bánh mì nguyên cám giảm cân bạn đã thử chưa?"
-            - "Kết quả trận bóng đá Việt Nam vs Thái Lan tối qua: 2-1"
-            - "5 hoạt động ngoài trời giúp trẻ phát triển trí thông minh"
-            - "Cách làm món gà rang muối đơn giản tại nhà trong 30 phút"
+            - "Top 5 phim hành động hay nhất 2023: The Beekeeper, Mission Impossible, John Wick 4, Indiana Jones và Fast X"
+            - "Công thức bánh mì nguyên cám giảm cân: 2 cup bột mì nguyên cám, 1 cup sữa chua, 1/2 cup mật ong"
+            - "Kết quả Champions League: Man City 3-1 Real Madrid (Haaland, Foden, Silva ghi bàn)"
+            - "5 bài tập cardio giảm mỡ bụng hiệu quả: Plank 30 giây, Mountain climber, Jumping jack, Russian twist, Bicycle crunch"
             
             Ví dụ không tốt:
-            - "Bạn có muốn xem phim không?"
-            - "Bạn thích ăn gì?"
-            - "Bạn có sự kiện thể thao nào muốn theo dõi không?"
+            - "Bạn đã biết bộ phim 'The Goal' vừa được phát hành và nhận nhiều phản hồi tích cực từ khán giả chưa?" (Kết hợp phim + bóng đá)
+            - "Kết quả trận đấu Champions League: Man City 3-1 Real Madrid, bạn có theo dõi không?" (Kết thúc bằng câu hỏi)
+            - "Bạn có muốn xem những phát hiện mới về dinh dưỡng không?" (Không cung cấp thông tin cụ thể)
             
-            Trả về chính xác {max_questions} câu hỏi.
+            Trả về chính xác {max_questions} câu gợi ý.
             """
             
             client = OpenAI(api_key=api_key)
@@ -164,71 +164,71 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
         random_seed = int(hashlib.md5(f"{datetime.datetime.now().strftime('%Y-%m-%d_%H')}_{member_id or 'guest'}".encode()).hexdigest(), 16) % 10000
         random.seed(random_seed)
         
-        # Mẫu câu hỏi cụ thể theo nhiều chủ đề khác nhau
+        # Mẫu câu thông tin cụ thể theo nhiều chủ đề khác nhau (không có câu hỏi cuối câu)
         question_templates = {
             "food": [
-                "Top 10 món {food} ngon nhất Việt Nam bạn nên thử một lần trong đời",
-                "Công thức làm món {food} kiểu mới chỉ với 15 phút chuẩn bị",
-                "5 biến tấu món {food} cho bữa {meal} giúp trẻ hết biếng ăn",
-                "Bí quyết làm món {food} ngon như nhà hàng 5 sao của đầu bếp nổi tiếng",
-                "Cách làm món {food} chuẩn vị {season} tốt cho sức khỏe",
-                "3 cách chế biến món {food} giảm calo mà vẫn thơm ngon"
+                "Top 10 món {food} ngon nhất Việt Nam: Hà Nội, Huế, Sài Gòn, Đà Nẵng, Hội An, Cần Thơ đều có đặc sản riêng.",
+                "Công thức làm món {food} ngon tại nhà: 30 phút chuẩn bị, 15 phút nấu, tiết kiệm 70% chi phí so với ăn ngoài hàng.",
+                "5 biến tấu món {food} cho bữa {meal}: Phiên bản Âu, Á, giảm calo, tăng protein, dành cho trẻ em.",
+                "Bí quyết làm món {food} ngon như nhà hàng 5 sao: Nguyên liệu tươi, gia vị đủ, nhiệt độ cao, thời gian chính xác.",
+                "Cách làm món {food} chuẩn vị {season}: Nguyên liệu theo mùa, phương pháp chế biến truyền thống.",
+                "3 cách chế biến món {food} giảm 50% calo: Thay dầu bằng nước luộc, nướng thay vì chiên, giảm bột."
             ],
-            "entertainment": [
-                "Top 5 phim hành động hay nhất 2024 bạn không nên bỏ lỡ",
-                "Kết quả trận đấu bóng đá giữa Việt Nam - Thái Lan: 2-1",
-                "Lịch chiếu phim bom tấn {season} 2024 tại các rạp",
-                "Danh sách 10 sách best-seller tháng này bạn nên đọc",
-                "Tin mới nhất: Concert của ca sĩ {music_artist} sắp diễn ra tại Việt Nam",
-                "3 trò chơi board game mới nhất được giới trẻ yêu thích"
+            "movies": [
+                "Top 5 phim chiếu rạp tuần này: {movie1}, {movie2}, {movie3} - Đặt vé ngay để nhận ưu đãi.",
+                "Phim mới ra mắt {movie1}: Đạt 85% đánh giá tích cực trên Rotten Tomatoes, doanh thu mở màn 120 triệu USD.",
+                "Đánh giá phim {movie1}: Kịch bản xuất sắc, diễn xuất thuyết phục, hiệu ứng hình ảnh đỉnh cao.",
+                "{actor} vừa giành giải Oscar cho vai diễn trong phim {movie1}, đánh bại 4 đối thủ nặng ký khác.",
+                "5 bộ phim kinh điển mọi thời đại: Titanic, The Godfather, Schindler's List, Forrest Gump, The Shawshank Redemption.",
+                "Lịch chiếu phim {movie1} cuối tuần này: Trung tâm thương mại Vincom (15:30, 18:00, 20:30), CGV (14:00, 16:30, 19:00, 21:30)."
+            ],
+            "football": [
+                "Kết quả Champions League: {team1} {score1}-{score2} {team2}, {player1} ({minute1}'), {player2} ({minute2}') ghi bàn.",
+                "BXH Ngoại hạng Anh sau vòng 30: Man City (72đ), Arsenal (71đ), Liverpool (67đ), Tottenham (60đ), Aston Villa (56đ).",
+                "Chuyển nhượng bóng đá: {player1} chuẩn bị gia nhập {team1} với giá 80 triệu euro, hợp đồng 5 năm.",
+                "Lịch thi đấu vòng tứ kết World Cup: {team1} vs {team2} (19:00), {team3} vs {team4} (23:00) ngày {gameday}.",
+                "Tổng hợp bàn thắng đẹp nhất tuần: Pha đánh gót của {player1}, cú sút xa của {player2}, pha solo của {player3}.",
+                "Thống kê {player1} mùa này: 25 bàn thắng, 12 kiến tạo, 8 thẻ vàng, 1 thẻ đỏ, tỷ lệ chuyền bóng chính xác 87%."
             ],
             "technology": [
-                "Đánh giá chi tiết iPhone 16 Pro Max: Có đáng để nâng cấp?",
-                "5 tính năng AI mới nhất trên smartphone bạn nên biết",
-                "So sánh chi tiết Samsung Galaxy S24 Ultra và iPhone 15 Pro Max",
-                "Cách tối ưu hóa pin laptop tăng thời lượng sử dụng lên 30%",
-                "Top 5 ứng dụng giúp tăng năng suất làm việc tại nhà",
-                "Đánh giá chi tiết laptop gaming mới nhất 2024"
+                "So sánh iPhone 16 Pro và Samsung S24 Ultra: Camera 200MP vs 48MP, pin 5000mAh vs 4852mAh, màn hình 6.8\" vs 6.7\".",
+                "5 tính năng AI mới trên smartphone 2024: Chỉnh sửa ảnh thông minh, dịch thuật realtime, tự động tóm tắt ghi chú, trợ lý ảo nâng cao.",
+                "Đánh giá laptop gaming {laptop_model}: CPU i9-14900K, GPU RTX 4090, RAM 64GB, màn hình 240Hz, giá 65 triệu đồng.",
+                "Cách tối ưu hóa pin điện thoại tăng 30% thời lượng: Giảm độ sáng màn hình, tắt vị trí GPS, giới hạn ứng dụng nền.",
+                "3 ứng dụng quản lý công việc tốt nhất 2024: Notion (đa năng), Todoist (đơn giản), ClickUp (làm việc nhóm).",
+                "Tin công nghệ: Google vừa ra mắt AI mới có khả năng lập trình và giải toán nhanh gấp 2 lần ChatGPT-4."
             ],
             "health": [
-                "5 bài tập cardio giảm mỡ bụng hiệu quả chỉ trong 10 phút mỗi ngày",
-                "Chế độ ăn Địa Trung Hải: Lợi ích sức khỏe được khoa học chứng minh",
-                "3 loại trà thảo mộc giúp giảm stress và cải thiện giấc ngủ",
-                "Cách phòng tránh cúm mùa trong thời điểm giao mùa {season}",
-                "Thực đơn 7 ngày giàu protein cho người tập gym",
-                "Những dấu hiệu thiếu vitamin D bạn không nên bỏ qua"
+                "5 loại thực phẩm tăng cường miễn dịch mùa {season}: Nghệ, gừng, tỏi, chanh, mật ong - kết hợp uống mỗi sáng.",
+                "Chế độ ăn Địa Trung Hải giúp giảm 30% nguy cơ bệnh tim mạch: Nhiều rau xanh, dầu olive, cá, ít thịt đỏ.",
+                "3 bài tập cardio đốt mỡ bụng hiệu quả trong 15 phút: Plank xoay người, Mountain climber, Russian twist.",
+                "Nghiên cứu mới: Ngủ đủ 7-8 tiếng mỗi đêm giúp giảm 40% nguy cơ mắc bệnh Alzheimer.",
+                "Cách phòng tránh cảm cúm mùa {season}: Uống nhiều nước, bổ sung vitamin C, rửa tay thường xuyên, tránh nơi đông người.",
+                "Thực đơn 7 ngày giàu protein: 2100 calories/ngày, 120g protein, 70g chất béo, 210g carbohydrate."
             ],
             "family": [
-                "10 hoạt động cuối tuần giúp gắn kết gia đình không tốn nhiều chi phí",
-                "5 trò chơi phát triển trí thông minh cho trẻ 3-6 tuổi",
-                "Bí quyết dạy trẻ kỹ năng quản lý tài chính từ nhỏ",
-                "Cách tổ chức không gian học tập hiệu quả cho trẻ tại nhà",
-                "Lịch trình một ngày khoa học cho gia đình có trẻ nhỏ",
-                "Cách giải quyết mâu thuẫn giữa anh chị em trong gia đình"
+                "10 hoạt động cuối tuần gắn kết gia đình: Nấu ăn cùng nhau, đạp xe, cắm trại, xem phim, chơi board game.",
+                "5 trò chơi phát triển IQ cho trẻ 3-6 tuổi: Xếp hình, đố chữ, nhận dạng hình khối, ghép tranh, đếm số.",
+                "Bí quyết dạy trẻ quản lý tài chính: Chia tiền thành 3 phần - tiêu dùng (50%), tiết kiệm (40%), từ thiện (10%).",
+                "Lịch trình khoa học cho trẻ: 8 tiếng ngủ, 6 tiếng học, 2 tiếng vận động, 1 tiếng đọc sách, thời gian còn lại cho gia đình.",
+                "Cách giải quyết mâu thuẫn anh chị em: Lắng nghe cả hai bên, tìm giải pháp công bằng, không so sánh trẻ.",
+                "5 dấu hiệu trẻ gặp khó khăn tâm lý cần hỗ trợ: Thay đổi thói quen ăn ngủ, tách biệt, giảm kết quả học tập."
             ],
             "travel": [
-                "Top 5 điểm du lịch Việt Nam đẹp nhất vào mùa {season}",
-                "Kinh nghiệm du lịch tiết kiệm cho gia đình 4 người",
-                "Những món đặc sản không thể bỏ qua khi du lịch miền Trung",
-                "Cẩm nang du lịch Đà Lạt: Thời điểm đẹp nhất và điểm đến hấp dẫn",
-                "5 resort thân thiện với trẻ em được đánh giá tốt nhất 2024",
-                "Kinh nghiệm đặt vé máy bay giá rẻ cho kỳ nghỉ sắp tới"
-            ],
-            "education": [
-                "5 phương pháp học tiếng Anh hiệu quả cho trẻ em",
-                "Top 10 kênh YouTube giáo dục chất lượng cao cho học sinh",
-                "Cách giúp trẻ tập trung học tập tại nhà hiệu quả",
-                "Các ứng dụng học toán miễn phí được giáo viên đánh giá cao",
-                "Lộ trình học lập trình cho trẻ từ 10 tuổi",
-                "Phương pháp đọc sách hiệu quả giúp ghi nhớ 80% nội dung"
+                "Top 5 điểm du lịch Việt Nam mùa {season}: Đà Lạt (mát mẻ), Hạ Long (trong xanh), Phú Quốc (biển đẹp), Sapa (mây phủ), Hội An (cổ kính).",
+                "Kinh nghiệm du lịch tiết kiệm: Đặt vé sớm 2 tháng (giảm 30%), ở homestay thay vì khách sạn, ăn tại chợ địa phương.",
+                "Lịch trình du lịch Đà Nẵng 3 ngày: Ngày 1 (Bà Nà Hills), Ngày 2 (Biển Mỹ Khê, Ngũ Hành Sơn), Ngày 3 (Hội An, Chùa Linh Ứng).",
+                "5 món đặc sản không thể bỏ qua khi đến Huế: Bún bò, cơm hến, bánh khoái, bánh bèo, chè Huế.",
+                "Cách chuẩn bị hành lý cho chuyến du lịch 5 ngày: 5 áo, 3 quần, đồ bơi, đồ đi mưa, sạc dự phòng, thuốc cơ bản.",
+                "Kinh nghiệm đặt phòng khách sạn: Đặt qua Agoda (rẻ hơn 15%), chọn miễn phí hủy, đọc 10 đánh giá gần nhất."
             ],
             "news": [
-                "Tin nóng: Giá vàng hôm nay tăng mạnh vượt mốc kỷ lục",
-                "Thời tiết {season} miền Bắc: Dự báo mưa dông trên diện rộng",
-                "Tin kinh tế: Lãi suất ngân hàng mới nhất tháng này",
-                "Cập nhật tình hình giao thông: Các tuyến đường kẹt xe giờ cao điểm",
-                "Tin giáo dục: Những thay đổi trong kỳ thi THPT Quốc gia 2024",
-                "Tin y tế: Cảnh báo dịch sốt xuất huyết tại các tỉnh phía Nam"
+                "Tin kinh tế: Lãi suất ngân hàng giảm 0.5% từ 1/4/2024, cơ hội vay mua nhà với lãi suất thấp nhất 3 năm qua.",
+                "Tin thời tiết: Miền Bắc đón không khí lạnh từ ngày mai, nhiệt độ giảm 5-7 độ, có mưa rào rải rác.",
+                "Tin giáo dục: Bộ GD&ĐT vừa công bố lịch thi THPT Quốc gia 2024 từ ngày 27-30/6, kết quả dự kiến ngày 15/7.",
+                "Tin giao thông: Cầu Thủ Thiêm 2 sẽ sửa chữa từ 1/5-15/6, người dân lưu ý đi các tuyến đường thay thế.",
+                "Tin y tế: Bộ Y tế khuyến cáo người dân tiêm vắc-xin phòng cúm mùa, đặc biệt người trên 65 tuổi và trẻ em.",
+                "Tin văn hóa: Lễ hội Áo dài TP.HCM dự kiến diễn ra từ 7-15/5, với sự tham gia của hơn 30 nhà thiết kế."
             ]
         }
         
@@ -244,7 +244,23 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             "season": ["xuân", "hạ", "thu", "đông"],
             "weather": ["nóng", "lạnh", "mưa", "nắng", "gió"],
             "music_artist": ["Sơn Tùng M-TP", "Mỹ Tâm", "BTS", "Taylor Swift", "Adele", "Coldplay", "BlackPink"],
-            "actor": ["Ngô Thanh Vân", "Trấn Thành", "Tom Cruise", "Song Joong Ki", "Scarlett Johansson", "Leonardo DiCaprio"]
+            "actor": ["Ngô Thanh Vân", "Trấn Thành", "Tom Cruise", "Song Joong Ki", "Scarlett Johansson", "Leonardo DiCaprio"],
+            "movie1": ["The Beekeeper", "Dune 2", "Godzilla x Kong", "Deadpool 3", "Inside Out 2", "Twisters", "Bad Boys 4"],
+            "movie2": ["The Fall Guy", "Kingdom of the Planet of the Apes", "Furiosa", "Borderlands", "Alien: Romulus"],
+            "movie3": ["Gladiator 2", "Wicked", "Sonic the Hedgehog 3", "Mufasa", "Moana 2", "Venom 3"],
+            "team1": ["Manchester City", "Arsenal", "Liverpool", "Real Madrid", "Barcelona", "Bayern Munich", "PSG", "Việt Nam"],
+            "team2": ["Chelsea", "Tottenham", "Inter Milan", "Juventus", "Atletico Madrid", "Dortmund", "Thái Lan"],
+            "team3": ["Manchester United", "Newcastle", "AC Milan", "Napoli", "Porto", "Ajax", "Indonesia"],
+            "team4": ["West Ham", "Aston Villa", "Roma", "Lazio", "Sevilla", "Leipzig", "Malaysia"],
+            "player1": ["Haaland", "Salah", "Saka", "Bellingham", "Mbappe", "Martinez", "Quang Hải", "Tiến Linh"],
+            "player2": ["De Bruyne", "Odegaard", "Kane", "Vinicius", "Lewandowski", "Griezmann", "Công Phượng"],
+            "player3": ["Rodri", "Rice", "Son", "Kroos", "Pedri", "Messi", "Văn Hậu", "Văn Lâm"],
+            "score1": ["1", "2", "3", "4", "5"],
+            "score2": ["0", "1", "2", "3"],
+            "minute1": ["12", "23", "45+2", "56", "67", "78", "89+1"],
+            "minute2": ["34", "45", "59", "69", "80", "90+3"],
+            "gameday": ["thứ Bảy", "Chủ nhật", "20/4", "27/4", "4/5", "11/5", "18/5"],
+            "laptop_model": ["Asus ROG Zephyrus G14", "Lenovo Legion Pro 7", "MSI Titan GT77", "Acer Predator Helios", "Alienware m18"]
         }
         
         # Thay thế các biến bằng thông tin cá nhân nếu có
@@ -294,48 +310,52 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
         replacements["meal"].insert(0, current_meal)
         replacements["time_of_day"].insert(0, current_meal)
         
-        # Tạo danh sách các chủ đề ưu tiên dựa trên thông tin người dùng
+        # Tạo danh sách các chủ đề ưu tiên theo sở thích người dùng
         priority_categories = []
+        user_preferences = {}
         
-        # Ưu tiên chủ đề dựa trên sở thích người dùng
+        # Phân tích sở thích người dùng
         if member_id and member_id in family_data:
             preferences = family_data[member_id].get("preferences", {})
+            user_preferences = preferences
             
+            # Ưu tiên các chủ đề dựa trên sở thích
             if preferences.get("food"):
                 priority_categories.append("food")
             
             if preferences.get("hobby"):
-                if preferences["hobby"].lower() in ["thể thao", "gym", "chạy bộ", "bóng đá", "bơi lội"]:
-                    priority_categories.append("health")
-                elif preferences["hobby"].lower() in ["đọc sách", "học", "nghiên cứu"]:
+                hobby = preferences["hobby"].lower()
+                if any(keyword in hobby for keyword in ["đọc", "sách", "học", "nghiên cứu"]):
                     priority_categories.append("education")
-                elif preferences["hobby"].lower() in ["du lịch", "phiêu lưu", "khám phá"]:
+                elif any(keyword in hobby for keyword in ["du lịch", "đi", "khám phá", "phiêu lưu"]):
                     priority_categories.append("travel")
-                elif preferences["hobby"].lower() in ["âm nhạc", "phim", "hòa nhạc"]:
+                elif any(keyword in hobby for keyword in ["âm nhạc", "nghe", "hát", "nhạc"]):
                     priority_categories.append("entertainment")
-                else:
-                    priority_categories.append("hobby")
-        
-        # Thêm tin tức và công nghệ vào danh sách ưu tiên
-        priority_categories.extend(["news", "technology"])
+                elif any(keyword in hobby for keyword in ["phim", "xem", "điện ảnh", "movie"]):
+                    priority_categories.append("movies")
+                elif any(keyword in hobby for keyword in ["bóng đá", "thể thao", "bóng rổ", "thể hình", "gym", "bóng", "đá", "tennis"]):
+                    priority_categories.append("football")
+                elif any(keyword in hobby for keyword in ["công nghệ", "máy tính", "điện thoại", "game", "tech"]):
+                    priority_categories.append("technology")
+                
+        # Luôn đảm bảo có tin tức trong các gợi ý
+        priority_categories.append("news")
         
         # Thêm các chủ đề còn lại
-        all_categories = list(question_templates.keys())
-        remaining_categories = [cat for cat in all_categories if cat not in priority_categories]
+        remaining_categories = [cat for cat in question_templates.keys() if cat not in priority_categories]
         
-        # Kết hợp danh sách để đảm bảo chủ đề ưu tiên xuất hiện trước
-        combined_categories = priority_categories + remaining_categories
+        # Đảm bảo tách riêng phim và bóng đá nếu người dùng thích cả hai
+        if "movies" not in priority_categories and "football" not in priority_categories:
+            # Nếu cả hai chưa được thêm, thêm cả hai
+            remaining_categories = ["movies", "football"] + [cat for cat in remaining_categories if cat not in ["movies", "football"]]
         
-        # Lấy max_questions chủ đề đầu tiên
-        selected_categories = combined_categories[:max_questions]
+        # Kết hợp để có tất cả chủ đề
+        all_categories = priority_categories + remaining_categories
         
-        # Đảm bảo luôn có ít nhất 1 câu hỏi từ news và 1 từ entertainment
-        if "news" not in selected_categories and len(selected_categories) > 2:
-            selected_categories[-1] = "news"
-        if "entertainment" not in selected_categories and len(selected_categories) > 3:
-            selected_categories[-2] = "entertainment"
+        # Chọn tối đa max_questions chủ đề, đảm bảo ưu tiên các sở thích
+        selected_categories = all_categories[:max_questions]
         
-        # Tạo câu hỏi dựa trên các chủ đề đã chọn
+        # Tạo câu gợi ý cho mỗi chủ đề
         for category in selected_categories:
             if len(questions) >= max_questions:
                 break
@@ -343,7 +363,15 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             # Chọn một mẫu câu ngẫu nhiên từ chủ đề
             template = random.choice(question_templates[category])
             
-            # Thay thế các biến trong mẫu câu
+            # Điều chỉnh mẫu câu dựa trên sở thích người dùng
+            if category == "food" and user_preferences.get("food"):
+                # Nếu người dùng có món ăn yêu thích, thay thế biến {food} bằng sở thích
+                template = template.replace("{food}", user_preferences["food"])
+            elif category == "football" and "hobby" in user_preferences and any(keyword in user_preferences["hobby"].lower() for keyword in ["bóng đá", "thể thao"]):
+                # Nếu người dùng thích bóng đá, ưu tiên thông tin cụ thể hơn
+                pass  # Giữ nguyên template vì đã đủ cụ thể
+            
+            # Thay thế các biến còn lại trong mẫu câu
             question = template
             for key in replacements:
                 if "{" + key + "}" in question:
@@ -352,26 +380,29 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             
             questions.append(question)
         
-        # Đảm bảo đủ số lượng câu hỏi bằng cách thêm từ chủ đề news và entertainment
-        more_templates = []
+        # Đảm bảo đủ số lượng câu hỏi
         if len(questions) < max_questions:
+            # Ưu tiên thêm từ tin tức và thông tin giải trí
+            more_templates = []
             more_templates.extend(question_templates["news"])
-            more_templates.extend(question_templates["entertainment"])
+            more_templates.extend(question_templates["movies"])
+            more_templates.extend(question_templates["football"])
+            
             random.shuffle(more_templates)
-        
-        while len(questions) < max_questions and more_templates:
-            template = more_templates.pop(0)
             
-            # Thay thế các biến trong mẫu câu
-            question = template
-            for key in replacements:
-                if "{" + key + "}" in question:
-                    replacement = random.choice(replacements[key])
-                    question = question.replace("{" + key + "}", replacement)
-            
-            # Tránh trùng lặp
-            if question not in questions:
-                questions.append(question)
+            while len(questions) < max_questions and more_templates:
+                template = more_templates.pop(0)
+                
+                # Thay thế các biến trong mẫu câu
+                question = template
+                for key in replacements:
+                    if "{" + key + "}" in question:
+                        replacement = random.choice(replacements[key])
+                        question = question.replace("{" + key + "}", replacement)
+                
+                # Tránh trùng lặp
+                if question not in questions:
+                    questions.append(question)
     
     # Lưu câu hỏi vào cache
     if "question_cache" not in st.session_state:
