@@ -99,29 +99,22 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             Hãy tạo {max_questions} câu gợi ý đa dạng và cá nhân hóa cho người dùng trợ lý gia đình dựa trên thông tin sau:
             
             Thông tin người dùng: {json.dumps(member_info, ensure_ascii=False)}
-            
-            Sự kiện sắp tới: {json.dumps(upcoming_events, ensure_ascii=False)}
-            
-            Chủ đề gần đây đã nói đến: {json.dumps(recent_topics, ensure_ascii=False)}
-            
-            Thời gian hiện tại: {context['current_time']}
-            Ngày hiện tại: {context['current_day']}
-            Ngày tháng: {context['current_date']}
+                        
             
             Yêu cầu:
             1. Mỗi câu gợi ý nên tập trung vào MỘT sở thích cụ thể, không kết hợp nhiều sở thích
             2. Mỗi gợi ý phải là một câu mang lại THÔNG TIN, KHÔNG phải câu hỏi
-            3. KHÔNG kết thúc câu gợi ý bằng dấu hỏi hoặc bất kỳ cụm từ nào như "bạn có biết không?", "bạn có muốn không?", v.v.
+            3. KHÔNG kết thúc câu gợi ý bằng bất kỳ cụm từ nào như "bạn có biết không?", "bạn có muốn không?", v.v.
             4. Đưa ra thông tin cụ thể, chi tiết và chính xác như thể bạn đang viết một bài đăng trên mạng xã hội
             5. Mục đích là cung cấp thông tin hữu ích, không phải bắt đầu cuộc trò chuyện
             7. Chỉ trả về danh sách các câu gợi ý, mỗi câu trên một dòng
             8. Không thêm đánh số hoặc dấu gạch đầu dòng
             
             Ví dụ tốt:
-            - "Top 5 phim hành động hay nhất 2023: The Beekeeper, Mission Impossible, John Wick 4, Indiana Jones và Fast X"
-            - "Công thức bánh mì nguyên cám giảm cân: 2 cup bột mì nguyên cám, 1 cup sữa chua, 1/2 cup mật ong"
-            - "Kết quả Champions League: Man City 3-1 Real Madrid (Haaland, Foden, Silva ghi bàn)"
-            - "5 bài tập cardio giảm mỡ bụng hiệu quả: Plank 30 giây, Mountain climber, Jumping jack, Russian twist, Bicycle crunch"
+            - "Top 5 phim hành động hay nhất 2023?"
+            - "Công thức bánh mì nguyên cám giảm cân?"
+            - "Kết quả Champions League?"
+            - "5 bài tập cardio giảm mỡ bụng hiệu quả?"
             
             Ví dụ không tốt:
             - "Bạn đã biết bộ phim 'The Goal' vừa được phát hành và nhận nhiều phản hồi tích cực từ khán giả chưa?" (Kết hợp phim + bóng đá)
@@ -166,68 +159,68 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
         # Mẫu câu thông tin cụ thể theo nhiều chủ đề khác nhau (không có câu hỏi cuối câu)
         question_templates = {
             "food": [
-                "Top 10 món {food} ngon nhất Việt Nam: Hà Nội, Huế, Sài Gòn, Đà Nẵng, Hội An, Cần Thơ đều có đặc sản riêng.",
-                "Công thức làm món {food} ngon tại nhà: 30 phút chuẩn bị, 15 phút nấu, tiết kiệm 70% chi phí so với ăn ngoài hàng.",
-                "5 biến tấu món {food} cho bữa {meal}: Phiên bản Âu, Á, giảm calo, tăng protein, dành cho trẻ em.",
-                "Bí quyết làm món {food} ngon như nhà hàng 5 sao: Nguyên liệu tươi, gia vị đủ, nhiệt độ cao, thời gian chính xác.",
-                "Cách làm món {food} chuẩn vị {season}: Nguyên liệu theo mùa, phương pháp chế biến truyền thống.",
-                "3 cách chế biến món {food} giảm 50% calo: Thay dầu bằng nước luộc, nướng thay vì chiên, giảm bột."
+                "Top 10 món {food} ngon nhất Việt Nam?",
+                "Công thức làm món {food} ngon tại nhà?",
+                "5 biến tấu món {food} cho bữa {meal}?",
+                "Bí quyết làm món {food} ngon như nhà hàng 5 sao?",
+                "Cách làm món {food} chuẩn vị {season}?",
+                "3 cách chế biến món {food} giảm 50% calo?"
             ],
             "movies": [
                 "Top 5 phim chiếu rạp tuần này: {movie1}, {movie2}, {movie3} - Đặt vé ngay để nhận ưu đãi.",
-                "Phim mới ra mắt {movie1}: Đạt 85% đánh giá tích cực trên Rotten Tomatoes, doanh thu mở màn 120 triệu USD.",
-                "Đánh giá phim {movie1}: Kịch bản xuất sắc, diễn xuất thuyết phục, hiệu ứng hình ảnh đỉnh cao.",
+                "Phim mới ra mắt {movie1}?",
+                "Đánh giá phim {movie1}?",
                 "{actor} vừa giành giải Oscar cho vai diễn trong phim {movie1}, đánh bại 4 đối thủ nặng ký khác.",
-                "5 bộ phim kinh điển mọi thời đại: Titanic, The Godfather, Schindler's List, Forrest Gump, The Shawshank Redemption.",
-                "Lịch chiếu phim {movie1} cuối tuần này: Trung tâm thương mại Vincom (15:30, 18:00, 20:30), CGV (14:00, 16:30, 19:00, 21:30)."
+                "5 bộ phim kinh điển mọi thời đại?",
+                "Lịch chiếu phim {movie1} cuối tuần này?"
             ],
             "football": [
-                "Kết quả Champions League: {team1} {score1}-{score2} {team2}, {player1} ({minute1}'), {player2} ({minute2}') ghi bàn.",
-                "BXH Ngoại hạng Anh sau vòng 30: Man City (72đ), Arsenal (71đ), Liverpool (67đ), Tottenham (60đ), Aston Villa (56đ).",
-                "Chuyển nhượng bóng đá: {player1} chuẩn bị gia nhập {team1} với giá 80 triệu euro, hợp đồng 5 năm.",
-                "Lịch thi đấu vòng tứ kết World Cup: {team1} vs {team2} (19:00), {team3} vs {team4} (23:00) ngày {gameday}.",
-                "Tổng hợp bàn thắng đẹp nhất tuần: Pha đánh gót của {player1}, cú sút xa của {player2}, pha solo của {player3}.",
-                "Thống kê {player1} mùa này: 25 bàn thắng, 12 kiến tạo, 8 thẻ vàng, 1 thẻ đỏ, tỷ lệ chuyền bóng chính xác 87%."
+                "Kết quả Champions League?",
+                "BXH Ngoại hạng Anh sau vòng 30?",
+                "Chuyển nhượng bóng đá?",
+                "Lịch thi đấu vòng tứ kết World Cup?",
+                "Tổng hợp bàn thắng đẹp nhất tuần?",
+                "Thống kê {player1} mùa này?"
             ],
             "technology": [
-                "So sánh iPhone 16 Pro và Samsung S24 Ultra: Camera 200MP vs 48MP, pin 5000mAh vs 4852mAh, màn hình 6.8\" vs 6.7\".",
-                "5 tính năng AI mới trên smartphone 2024: Chỉnh sửa ảnh thông minh, dịch thuật realtime, tự động tóm tắt ghi chú, trợ lý ảo nâng cao.",
-                "Đánh giá laptop gaming {laptop_model}: CPU i9-14900K, GPU RTX 4090, RAM 64GB, màn hình 240Hz, giá 65 triệu đồng.",
-                "Cách tối ưu hóa pin điện thoại tăng 30% thời lượng: Giảm độ sáng màn hình, tắt vị trí GPS, giới hạn ứng dụng nền.",
-                "3 ứng dụng quản lý công việc tốt nhất 2024: Notion (đa năng), Todoist (đơn giản), ClickUp (làm việc nhóm).",
-                "Tin công nghệ: Google vừa ra mắt AI mới có khả năng lập trình và giải toán nhanh gấp 2 lần ChatGPT-4."
+                "So sánh iPhone 16 Pro và Samsung S24 Ultra?",
+                "5 tính năng AI mới trên smartphone 2024?",
+                "Đánh giá laptop gaming {laptop_model}?",
+                "Cách tối ưu hóa pin điện thoại tăng 30% thời lượng?",
+                "3 ứng dụng quản lý công việc tốt nhất 2024?",
+                "Tin công nghệ?"
             ],
             "health": [
-                "5 loại thực phẩm tăng cường miễn dịch mùa {season}: Nghệ, gừng, tỏi, chanh, mật ong - kết hợp uống mỗi sáng.",
-                "Chế độ ăn Địa Trung Hải giúp giảm 30% nguy cơ bệnh tim mạch: Nhiều rau xanh, dầu olive, cá, ít thịt đỏ.",
-                "3 bài tập cardio đốt mỡ bụng hiệu quả trong 15 phút: Plank xoay người, Mountain climber, Russian twist.",
-                "Nghiên cứu mới: Ngủ đủ 7-8 tiếng mỗi đêm giúp giảm 40% nguy cơ mắc bệnh Alzheimer.",
-                "Cách phòng tránh cảm cúm mùa {season}: Uống nhiều nước, bổ sung vitamin C, rửa tay thường xuyên, tránh nơi đông người.",
-                "Thực đơn 7 ngày giàu protein: 2100 calories/ngày, 120g protein, 70g chất béo, 210g carbohydrate."
+                "5 loại thực phẩm tăng cường miễn dịch mùa {season}?",
+                "Chế độ ăn Địa Trung Hải giúp giảm 30% nguy cơ bệnh tim mạch?",
+                "3 bài tập cardio đốt mỡ bụng hiệu quả trong 15 phút?",
+                "Nghiên cứu mới?",
+                "Cách phòng tránh cảm cúm mùa {season}?",
+                "Thực đơn 7 ngày giàu protein?"
             ],
             "family": [
-                "10 hoạt động cuối tuần gắn kết gia đình: Nấu ăn cùng nhau, đạp xe, cắm trại, xem phim, chơi board game.",
-                "5 trò chơi phát triển IQ cho trẻ 3-6 tuổi: Xếp hình, đố chữ, nhận dạng hình khối, ghép tranh, đếm số.",
-                "Bí quyết dạy trẻ quản lý tài chính: Chia tiền thành 3 phần - tiêu dùng (50%), tiết kiệm (40%), từ thiện (10%).",
-                "Lịch trình khoa học cho trẻ: 8 tiếng ngủ, 6 tiếng học, 2 tiếng vận động, 1 tiếng đọc sách, thời gian còn lại cho gia đình.",
-                "Cách giải quyết mâu thuẫn anh chị em: Lắng nghe cả hai bên, tìm giải pháp công bằng, không so sánh trẻ.",
-                "5 dấu hiệu trẻ gặp khó khăn tâm lý cần hỗ trợ: Thay đổi thói quen ăn ngủ, tách biệt, giảm kết quả học tập."
+                "10 hoạt động cuối tuần gắn kết gia đình?",
+                "5 trò chơi phát triển IQ cho trẻ 3-6 tuổi?.",
+                "Bí quyết dạy trẻ quản lý tài chính?",
+                "Lịch trình khoa học cho trẻ?",
+                "Cách giải quyết mâu thuẫn anh chị em?",
+                "5 dấu hiệu trẻ gặp khó khăn tâm lý cần hỗ trợ?"
             ],
             "travel": [
-                "Top 5 điểm du lịch Việt Nam mùa {season}: Đà Lạt (mát mẻ), Hạ Long (trong xanh), Phú Quốc (biển đẹp), Sapa (mây phủ), Hội An (cổ kính).",
-                "Kinh nghiệm du lịch tiết kiệm: Đặt vé sớm 2 tháng (giảm 30%), ở homestay thay vì khách sạn, ăn tại chợ địa phương.",
-                "Lịch trình du lịch Đà Nẵng 3 ngày: Ngày 1 (Bà Nà Hills), Ngày 2 (Biển Mỹ Khê, Ngũ Hành Sơn), Ngày 3 (Hội An, Chùa Linh Ứng).",
-                "5 món đặc sản không thể bỏ qua khi đến Huế: Bún bò, cơm hến, bánh khoái, bánh bèo, chè Huế.",
-                "Cách chuẩn bị hành lý cho chuyến du lịch 5 ngày: 5 áo, 3 quần, đồ bơi, đồ đi mưa, sạc dự phòng, thuốc cơ bản.",
-                "Kinh nghiệm đặt phòng khách sạn: Đặt qua Agoda (rẻ hơn 15%), chọn miễn phí hủy, đọc 10 đánh giá gần nhất."
+                "Top 5 điểm du lịch Việt Nam mùa {season}?",
+                "Kinh nghiệm du lịch tiết kiệm?",
+                "Lịch trình du lịch Đà Nẵng 3 ngày?",
+                "5 món đặc sản không thể bỏ qua khi đến Huế?",
+                "Cách chuẩn bị hành lý cho chuyến du lịch 5 ngày?",
+                "Kinh nghiệm đặt phòng khách sạn?"
             ],
             "news": [
-                "Tin kinh tế: Lãi suất ngân hàng giảm 0.5% từ 1/4/2024, cơ hội vay mua nhà với lãi suất thấp nhất 3 năm qua.",
-                "Tin thời tiết: Miền Bắc đón không khí lạnh từ ngày mai, nhiệt độ giảm 5-7 độ, có mưa rào rải rác.",
-                "Tin giáo dục: Bộ GD&ĐT vừa công bố lịch thi THPT Quốc gia 2024 từ ngày 27-30/6, kết quả dự kiến ngày 15/7.",
-                "Tin giao thông: Cầu Thủ Thiêm 2 sẽ sửa chữa từ 1/5-15/6, người dân lưu ý đi các tuyến đường thay thế.",
-                "Tin y tế: Bộ Y tế khuyến cáo người dân tiêm vắc-xin phòng cúm mùa, đặc biệt người trên 65 tuổi và trẻ em.",
-                "Tin văn hóa: Lễ hội Áo dài TP.HCM dự kiến diễn ra từ 7-15/5, với sự tham gia của hơn 30 nhà thiết kế."
+                "Tin kinh tế?",
+                "Tin thời tiết?",
+                "Tin giáo dục?",
+                "Tin giao thông?",
+                "Tin y tế?",
+                "Tin văn hóa?"
             ]
         }
         
