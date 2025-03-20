@@ -1066,6 +1066,441 @@ def main():
                     system_prompt=system_prompt,
                     current_member=st.session_state.current_member
                 ))
+# Thêm vào phần import
+import random
+import hashlib
 
-if __name__=="__main__":
-    main()
+# Các import và biến toàn cục giữ nguyên...
+
+# Thêm hàm tạo câu hỏi gợi ý động
+def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=5):
+    """
+    Tạo câu hỏi gợi ý cá nhân hóa và linh động dựa trên thông tin thành viên, 
+    lịch sử trò chuyện và thời điểm hiện tại
+    """
+    # Kiểm tra cache để tránh tạo câu hỏi mới quá thường xuyên
+    cache_key = f"suggested_questions_{member_id}_{datetime.datetime.now().strftime('%Y-%m-%d_%H')}"
+    if "question_cache" in st.session_state and cache_key in st.session_state.question_cache:
+        return st.session_state.question_cache[cache_key]
+    
+    # Xác định trạng thái người dùng hiện tại
+    member_info = {}
+    if member_id and member_id in family_data:
+        member = family_data[member_id]
+        member_info = {
+            "name": member.get("name", ""),
+            "age": member.get("age", ""),
+            "preferences": member.get("preferences", {})
+        }
+    
+    # Thu thập dữ liệu về các sự kiện sắp tới
+    upcoming_events = []
+    today = datetime.datetime.now().date()
+    
+    for event_id, event in events_data.items():
+        try:
+            event_date = datetime.datetime.strptime(event.get("date", ""), "%Y-%m-%d").date()
+            if event_date >= today:
+                date_diff = (event_date - today).days
+                if date_diff <= 14:  # Chỉ quan tâm sự kiện trong 2 tuần tới
+                    upcoming_events.append({
+                        "title": event.get("title", ""),
+                        "date": event.get("date", ""),
+                        "days_away": date_diff
+                    })
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý ngày sự kiện: {e}")
+            continue
+    
+    # Lấy dữ liệu về chủ đề từ lịch sử trò chuyện gần đây
+    recent_topics = []
+    if member_id and member_id in chat_history and chat_history[member_id]:
+        # Lấy tối đa 3 cuộc trò chuyện gần nhất
+        recent_chats = chat_history[member_id][:3]
+        
+        for chat in recent_chats:
+            summary = chat.get("summary", "")
+            if summary:
+                recent_topics.append(summary)
+    
+    questions = []
+    
+    # Phương thức 1: Sử dụng OpenAI API để sinh câu hỏi thông minh nếu có API key
+    if api_key and api_key.startswith("sk-"):
+        try:
+            # Tạo nội dung prompt cho OpenAI
+            context = {
+                "member": member_info,
+                "upcoming_events": upcoming_events,
+                "recent_topics": recent_topics,
+                "current_time": datetime.datetime.now().strftime("%H:%M"),
+                "current_day": datetime.datetime.now().strftime("%A"),
+                "current_date": datetime.datetime.now().strftime("%Y-%m-%d")
+            }
+            
+            prompt = f"""
+            Hãy tạo {max_questions} câu hỏi gợi ý đa dạng và cá nhân hóa cho người dùng trợ lý gia đình dựa trên thông tin sau:
+            
+            Thông tin người dùng: {json.dumps(member_info, ensure_ascii=False)}
+            
+            Sự kiện sắp tới: {json.dumps(upcoming_events, ensure_ascii=False)}
+            
+            Chủ đề gần đây đã nói đến: {json.dumps(recent_topics, ensure_ascii=False)}
+            
+            Thời gian hiện tại: {context['current_time']}
+            Ngày hiện tại: {context['current_day']}
+            Ngày tháng: {context['current_date']}
+            
+            Yêu cầu:
+            1. Câu hỏi phải ngắn gọn, cụ thể và hấp dẫn
+            2. Câu hỏi phải đa dạng về chủ đề (ẩm thực, sự kiện gia đình, sở thích, sức khỏe, v.v.)
+            3. Câu hỏi phải phù hợp với thời điểm trong ngày và thông tin cá nhân
+            4. Sử dụng thông tin cá nhân để tạo câu hỏi cá nhân hóa
+            5. Chỉ trả về danh sách các câu hỏi, mỗi câu hỏi trên một dòng
+            6. Không thêm đánh số hoặc dấu gạch đầu dòng
+            
+            Trả về chính xác {max_questions} câu hỏi.
+            """
+            
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=openai_model,
+                messages=[
+                    {"role": "system", "content": "Bạn là trợ lý tạo câu hỏi gợi ý cá nhân hóa."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=300
+            )
+            
+            # Xử lý phản hồi từ OpenAI
+            generated_content = response.choices[0].message.content.strip()
+            questions = [q.strip() for q in generated_content.split('\n') if q.strip()]
+            
+            # Lấy số lượng câu hỏi theo yêu cầu
+            questions = questions[:max_questions]
+            
+            logger.info(f"Đã tạo {len(questions)} câu hỏi gợi ý bằng OpenAI API")
+            
+        except Exception as e:
+            logger.error(f"Lỗi khi tạo câu hỏi với OpenAI: {e}")
+            # Tiếp tục với phương thức 2 (dự phòng)
+    
+    # Phương thức 2: Dùng mẫu câu + thông tin cá nhân nếu không thể sử dụng OpenAI API
+    if not questions:
+        logger.info("Sử dụng phương pháp mẫu câu để tạo câu hỏi gợi ý")
+        
+        # Tạo seed dựa trên ngày và ID thành viên để tạo sự đa dạng
+        random_seed = int(hashlib.md5(f"{datetime.datetime.now().strftime('%Y-%m-%d_%H')}_{member_id or 'guest'}".encode()).hexdigest(), 16) % 10000
+        random.seed(random_seed)
+        
+        # Mẫu câu hỏi theo nhiều chủ đề khác nhau
+        question_templates = {
+            "food": [
+                "Gợi ý món {food} cho bữa {meal} hôm nay?",
+                "Làm thế nào để nấu món {food} ngon hơn?",
+                "Có công thức nào đơn giản cho món {food} không?",
+                "Kết hợp món {food} với món gì cho bữa {meal}?",
+                "Gợi ý thực đơn cho bữa {meal} với {food}",
+                "Món {food} phiên bản healthy nấu như thế nào?"
+            ],
+            "event": [
+                "Làm gì để chuẩn bị cho {event} trong {days} ngày tới?",
+                "Cần mua những gì cho {event} sắp tới?",
+                "Ý tưởng quà tặng cho {event}?",
+                "Kế hoạch cho {event} sắp tới của gia đình là gì?",
+                "Gợi ý hoạt động thú vị cho {event}"
+            ],
+            "hobby": [
+                "Có sự kiện nào về {hobby} sắp diễn ra không?",
+                "Làm thế nào để cải thiện kỹ năng {hobby}?",
+                "Hoạt động liên quan đến {hobby} thích hợp cho cả gia đình?",
+                "Có thể kết hợp {hobby} với hoạt động gia đình như thế nào?",
+                "Gợi ý nơi thực hành {hobby} gần đây?"
+            ],
+            "health": [
+                "Thực đơn healthy cho bữa {meal} hôm nay?",
+                "Bài tập thể dục ngắn phù hợp vào buổi {time_of_day}?",
+                "Cách cải thiện chế độ ăn uống cho cả gia đình?",
+                "Hoạt động thể chất toàn gia đình cho ngày cuối tuần?",
+                "Mẹo cải thiện sức khỏe tinh thần sau ngày làm việc"
+            ],
+            "family": [
+                "Hoạt động gắn kết gia đình cho ngày {day}?",
+                "Trò chơi gia đình thú vị cho buổi tối?",
+                "Ý tưởng cho buổi họp gia đình định kỳ?",
+                "Làm gì để cải thiện không khí gia đình?",
+                "Kế hoạch cuối tuần cho cả gia đình?"
+            ],
+            "seasonal": [
+                "Hoạt động mùa {season} phù hợp với cả gia đình?",
+                "Thực đơn phù hợp với thời tiết {weather} hôm nay?",
+                "Chuẩn bị gì cho mùa {season} sắp tới?",
+                "Ý tưởng trang trí nhà theo mùa {season}?",
+                "Món ăn đặc trưng của mùa {season} là gì?"
+            ],
+            "general": [
+                "Hôm nay có tin tức gì thú vị cho gia đình?",
+                "Gợi ý kế hoạch chi tiêu hợp lý cho gia đình?",
+                "Cách sắp xếp lịch trình hợp lý cho mọi người?",
+                "Mẹo tổ chức không gian sống gọn gàng hơn?",
+                "Ý tưởng tiết kiệm thời gian cho các công việc nhà?"
+            ]
+        }
+        
+        # Các biến thay thế trong mẫu câu
+        replacements = {
+            "food": ["món tráng miệng", "món chính", "món khai vị", "đồ ăn nhẹ", "món Á", "món Âu", "món truyền thống"],
+            "meal": ["sáng", "trưa", "tối", "xế"],
+            "event": ["sinh nhật", "họp gia đình", "dã ngoại", "tiệc", "kỳ nghỉ"],
+            "days": ["vài", "2", "3", "7", "10"],
+            "hobby": ["đọc sách", "nấu ăn", "thể thao", "làm vườn", "vẽ", "âm nhạc", "nhiếp ảnh"],
+            "time_of_day": ["sáng", "trưa", "chiều", "tối"],
+            "day": ["thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ Nhật", "cuối tuần"],
+            "season": ["xuân", "hạ", "thu", "đông"],
+            "weather": ["nóng", "lạnh", "mưa", "nắng", "gió"]
+        }
+        
+        # Thay thế các biến bằng thông tin cá nhân nếu có
+        if member_id and member_id in family_data:
+            preferences = family_data[member_id].get("preferences", {})
+            
+            if preferences.get("food"):
+                replacements["food"].insert(0, preferences["food"])
+            
+            if preferences.get("hobby"):
+                replacements["hobby"].insert(0, preferences["hobby"])
+        
+        # Thêm thông tin từ sự kiện sắp tới
+        if upcoming_events:
+            for event in upcoming_events:
+                replacements["event"].insert(0, event["title"])
+                replacements["days"].insert(0, str(event["days_away"]))
+        
+        # Xác định mùa hiện tại (đơn giản hóa)
+        current_month = datetime.datetime.now().month
+        if 3 <= current_month <= 5:
+            current_season = "xuân"
+        elif 6 <= current_month <= 8:
+            current_season = "hạ"
+        elif 9 <= current_month <= 11:
+            current_season = "thu"
+        else:
+            current_season = "đông"
+        
+        replacements["season"].insert(0, current_season)
+        
+        # Thêm ngày hiện tại
+        current_day_name = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"][datetime.datetime.now().weekday()]
+        replacements["day"].insert(0, current_day_name)
+        
+        # Thêm bữa ăn phù hợp với thời điểm hiện tại
+        current_hour = datetime.datetime.now().hour
+        if 5 <= current_hour < 10:
+            current_meal = "sáng"
+        elif 10 <= current_hour < 14:
+            current_meal = "trưa"
+        elif 14 <= current_hour < 17:
+            current_meal = "xế"
+        else:
+            current_meal = "tối"
+        
+        replacements["meal"].insert(0, current_meal)
+        replacements["time_of_day"].insert(0, current_meal)
+        
+        # Chọn các chủ đề ngẫu nhiên để tạo câu hỏi
+        selected_categories = random.sample(list(question_templates.keys()), min(max_questions, len(question_templates)))
+        
+        for category in selected_categories:
+            if len(questions) >= max_questions:
+                break
+                
+            # Chọn một mẫu câu ngẫu nhiên từ chủ đề
+            template = random.choice(question_templates[category])
+            
+            # Thay thế các biến trong mẫu câu
+            question = template
+            for key in replacements:
+                if "{" + key + "}" in question:
+                    replacement = random.choice(replacements[key])
+                    question = question.replace("{" + key + "}", replacement)
+            
+            questions.append(question)
+        
+        # Đảm bảo đủ số lượng câu hỏi bằng cách thêm từ chủ đề general
+        while len(questions) < max_questions:
+            template = random.choice(question_templates["general"])
+            
+            # Thay thế các biến trong mẫu câu
+            question = template
+            for key in replacements:
+                if "{" + key + "}" in question:
+                    replacement = random.choice(replacements[key])
+                    question = question.replace("{" + key + "}", replacement)
+            
+            # Tránh trùng lặp
+            if question not in questions:
+                questions.append(question)
+    
+    # Lưu câu hỏi vào cache
+    if "question_cache" not in st.session_state:
+        st.session_state.question_cache = {}
+    
+    st.session_state.question_cache[cache_key] = questions
+    
+    return questions
+
+def handle_suggested_question(question):
+    """Xử lý khi người dùng chọn câu hỏi gợi ý"""
+    st.session_state.suggested_question = question
+    st.session_state.process_suggested = True
+
+# Các hàm tiện ích khác giữ nguyên...
+
+def main():
+    # ... (Phần code khởi đầu giữ nguyên)
+    
+    # --- Khởi tạo session state ---
+    if "current_member" not in st.session_state:
+        st.session_state.current_member = None  # ID thành viên đang trò chuyện
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "suggested_question" not in st.session_state:
+        st.session_state.suggested_question = None
+    if "process_suggested" not in st.session_state:
+        st.session_state.process_suggested = False
+    if "question_cache" not in st.session_state:
+        st.session_state.question_cache = {}
+    
+    # ... (Phần code sidebar giữ nguyên)
+    
+    # Trong sidebar thêm nút làm mới câu hỏi gợi ý
+    with st.sidebar:
+        # ... (Các phần hiện có)
+        
+        st.divider()
+        
+        # Nút làm mới câu hỏi gợi ý
+        if st.button("🔄 Làm mới câu hỏi gợi ý"):
+            # Xóa cache để tạo câu hỏi mới
+            if "question_cache" in st.session_state:
+                st.session_state.question_cache = {}
+            st.rerun()
+    
+    # ... (Phần code giữa giữ nguyên)
+    
+    # --- Nội dung chính ---
+    # Kiểm tra nếu người dùng đã nhập OpenAI API Key, nếu không thì hiển thị cảnh báo
+    if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
+        # ... (Phần hiện có)
+    else:
+        client = OpenAI(api_key=openai_api_key)
+
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        # Hiển thị các tin nhắn trước đó nếu có
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                for content in message["content"]:
+                    if content["type"] == "text":
+                        st.write(content["text"])
+                    elif content["type"] == "image_url":      
+                        st.image(content["image_url"]["url"])
+        
+        # Kiểm tra và xử lý câu hỏi gợi ý đã chọn
+        if st.session_state.process_suggested and st.session_state.suggested_question:
+            question = st.session_state.suggested_question
+            st.session_state.suggested_question = None
+            st.session_state.process_suggested = False
+            
+            # Thêm câu hỏi vào messages
+            st.session_state.messages.append(
+                {
+                    "role": "user", 
+                    "content": [{
+                        "type": "text",
+                        "text": question,
+                    }]
+                }
+            )
+            
+            # Hiển thị tin nhắn người dùng
+            with st.chat_message("user"):
+                st.markdown(question)
+            
+            # Xử lý phản hồi từ trợ lý
+            with st.chat_message("assistant"):
+                st.write_stream(stream_llm_response(
+                    api_key=openai_api_key, 
+                    system_prompt=system_prompt,
+                    current_member=st.session_state.current_member
+                ))
+            
+            # Rerun để cập nhật giao diện và tránh xử lý trùng lặp
+            st.rerun()
+        
+        # Hiển thị câu hỏi gợi ý
+        if openai_api_key:
+            # Container cho câu hỏi gợi ý với CSS tùy chỉnh
+            st.markdown("""
+            <style>
+            .suggestion-container {
+                margin-top: 20px;
+                margin-bottom: 20px;
+            }
+            .suggestion-title {
+                font-size: 16px;
+                font-weight: 500;
+                margin-bottom: 10px;
+                color: #555;
+            }
+            .suggestion-box {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-bottom: 15px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<div class="suggestion-container">', unsafe_allow_html=True)
+            st.markdown('<div class="suggestion-title">💡 Câu hỏi gợi ý cho bạn:</div>', unsafe_allow_html=True)
+            
+            # Tạo câu hỏi gợi ý động
+            suggested_questions = generate_dynamic_suggested_questions(
+                api_key=openai_api_key,
+                member_id=st.session_state.current_member,
+                max_questions=5
+            )
+            
+            # Hiển thị các nút cho câu hỏi gợi ý
+            st.markdown('<div class="suggestion-box">', unsafe_allow_html=True)
+            
+            # Chia câu hỏi thành 2 dòng
+            row1, row2 = st.columns([1, 1])
+            
+            with row1:
+                for i, question in enumerate(suggested_questions[:3]):
+                    if st.button(
+                        question,
+                        key=f"suggest_q_{i}",
+                        use_container_width=True
+                    ):
+                        handle_suggested_question(question)
+            
+            with row2:
+                for i, question in enumerate(suggested_questions[3:], 3):
+                    if st.button(
+                        question,
+                        key=f"suggest_q_{i}",
+                        use_container_width=True
+                    ):
+                        handle_suggested_question(question)
+            
+            st.markdown('</div></div>', unsafe_allow_html=True)
+        
+        # ... (Phần code chat input hiện có)
+
+# if __name__=="__main__":
+#     main()
