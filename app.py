@@ -110,11 +110,10 @@ def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=
             
             Yêu cầu:
             1. Mỗi câu gợi ý nên tập trung vào MỘT sở thích cụ thể, không kết hợp nhiều sở thích
-            2. Mỗi gợi ý phải là một câu THÔNG BÁO hoặc THÔNG TIN, KHÔNG phải câu hỏi
+            2. Mỗi gợi ý phải là một câu mang lại THÔNG TIN, KHÔNG phải câu hỏi
             3. KHÔNG kết thúc câu gợi ý bằng dấu hỏi hoặc bất kỳ cụm từ nào như "bạn có biết không?", "bạn có muốn không?", v.v.
             4. Đưa ra thông tin cụ thể, chi tiết và chính xác như thể bạn đang viết một bài đăng trên mạng xã hội
             5. Mục đích là cung cấp thông tin hữu ích, không phải bắt đầu cuộc trò chuyện
-            6. Luôn tạo ít nhất một gợi ý về bóng đá, phim ảnh, tin tức, ẩm thực nếu có thể
             7. Chỉ trả về danh sách các câu gợi ý, mỗi câu trên một dòng
             8. Không thêm đánh số hoặc dấu gạch đầu dòng
             
