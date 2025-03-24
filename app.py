@@ -10,7 +10,6 @@ import json
 import datetime
 import random
 import hashlib
-import requests
 
 dotenv.load_dotenv()
 
@@ -19,7 +18,6 @@ FAMILY_DATA_FILE = "family_data.json"
 EVENTS_DATA_FILE = "events_data.json"
 NOTES_DATA_FILE = "notes_data.json"
 CHAT_HISTORY_FILE = "chat_history.json"  # Thêm file lưu trữ lịch sử chat
-SEARCH_HISTORY_FILE = "search_history.json"  # File lưu trữ lịch sử tìm kiếm
 
 # Thiết lập log để debug
 import logging
@@ -31,224 +29,16 @@ logger = logging.getLogger('family_assistant')
 # Chỉ sử dụng một mô hình duy nhất
 openai_model = "gpt-4o-mini"
 
-# Hàm tìm kiếm sử dụng Tavily API
-def search_with_tavily(api_key, query, search_depth="basic", max_results=5):
-    """
-    Tìm kiếm thông tin từ Internet sử dụng Tavily API
-    
-    Tham số:
-    - api_key (str): Tavily API key
-    - query (str): Câu truy vấn tìm kiếm
-    - search_depth (str): Độ sâu tìm kiếm, "basic" hoặc "deep"
-    - max_results (int): Số lượng kết quả tối đa
-    
-    Trả về:
-    - dict: Kết quả tìm kiếm hoặc None nếu có lỗi
-    """
-    try:
-        url = "https://api.tavily.com/search"
-        headers = {
-            "content-type": "application/json",
-            "Accept": "application/json"
-        }
-        data = {
-            "api_key": api_key,
-            "query": query,
-            "search_depth": search_depth,
-            "max_results": max_results,
-            "include_answer": True,
-            "include_domains": [],
-            "exclude_domains": []
-        }
-        
-        response = requests.post(url, json=data, headers=headers)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logger.error(f"Lỗi khi tìm kiếm với Tavily: {response.status_code}, {response.text}")
-            return None
-    except Exception as e:
-        logger.error(f"Lỗi kết nối với Tavily API: {e}")
-        return None
-
-# Hàm lưu lịch sử tìm kiếm
-def save_search_history(query, results, member_id=None):
-    """
-    Lưu lịch sử tìm kiếm với Tavily API
-    
-    Tham số:
-    - query (str): Câu truy vấn đã tìm kiếm
-    - results (dict): Kết quả tìm kiếm từ Tavily
-    - member_id (str): ID thành viên thực hiện tìm kiếm (nếu có)
-    """
-    search_history = load_data(SEARCH_HISTORY_FILE)
-    
-    # Tạo ID tìm kiếm mới
-    search_id = str(len(search_history) + 1)
-    
-    # Tạo bản ghi mới
-    search_entry = {
-        "id": search_id,
-        "query": query,
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "member_id": member_id,
-        "results": results
-    }
-    
-    # Thêm vào lịch sử
-    search_history[search_id] = search_entry
-    
-    # Giới hạn số lượng bản ghi (giữ 100 bản ghi gần nhất)
-    if len(search_history) > 100:
-        # Sắp xếp theo thời gian và lấy 100 bản ghi mới nhất
-        sorted_history = sorted(search_history.items(), 
-                               key=lambda x: datetime.datetime.strptime(x[1]["timestamp"], "%Y-%m-%d %H:%M:%S"),
-                               reverse=True)[:100]
-        search_history = dict(sorted_history)
-    
-    # Lưu vào file
-    save_data(SEARCH_HISTORY_FILE, search_history)
-    return search_id
-
-# Hàm cập nhật system prompt với thông tin tìm kiếm
-def get_updated_system_prompt(system_prompt, search_results, query):
-    """
-    Cập nhật system prompt với thông tin tìm kiếm từ Internet
-    
-    Tham số:
-    - system_prompt (str): System prompt gốc
-    - search_results (dict): Kết quả tìm kiếm từ Tavily
-    - query (str): Câu truy vấn đã tìm kiếm
-    
-    Trả về:
-    - str: System prompt đã cập nhật
-    """
-    if not search_results:
-        return system_prompt
-    
-    search_info = f"\n\nKẾT QUẢ TÌM KIẾM INTERNET CHO: \"{query}\"\n"
-    
-    # Thêm kết quả tóm tắt nếu có
-    if "answer" in search_results and search_results["answer"]:
-        search_info += f"Tóm tắt: {search_results['answer']}\n\n"
-    
-    # Thêm các kết quả cụ thể
-    if "results" in search_results:
-        search_info += "Chi tiết kết quả:\n"
-        for idx, result in enumerate(search_results["results"], 1):
-            search_info += f"{idx}. {result.get('title', 'Không tiêu đề')}\n"
-            search_info += f"   URL: {result.get('url', '')}\n"
-            search_info += f"   Mô tả: {result.get('content', '')[:200]}...\n\n"
-    
-    # Thêm thời gian tìm kiếm
-    search_info += f"Thông tin này được tìm kiếm lúc: {datetime.datetime.now().strftime('%H:%M:%S %d/%m/%Y')}\n"
-    search_info += "Hãy sử dụng thông tin này để trả lời người dùng nếu phù hợp, nhưng không nhắc đến việc bạn đã tìm kiếm trên Internet trừ khi người dùng hỏi."
-    
-    return system_prompt + search_info
-
-# Hàm tạo câu hỏi gợi ý thời gian thực từ tin tức
-def generate_realtime_news_questions(tavily_api_key, member_id=None, max_questions=2):
-    """
-    Tạo câu hỏi gợi ý dựa trên tin tức thời gian thực
-    
-    Tham số:
-    - tavily_api_key (str): Tavily API key
-    - member_id (str): ID thành viên (để cá nhân hóa)
-    - max_questions (int): Số lượng câu hỏi tối đa
-    
-    Trả về:
-    - list: Danh sách các câu hỏi gợi ý
-    """
-    # Tạo cache key
-    cache_key = f"news_questions_{datetime.datetime.now().strftime('%Y-%m-%d_%H')}"
-    if "news_question_cache" in st.session_state and cache_key in st.session_state.news_question_cache:
-        return st.session_state.news_question_cache[cache_key]
-    
-    # Xác định chủ đề tìm kiếm dựa trên sở thích người dùng
-    search_topics = ["tin tức mới nhất", "tin tức nổi bật hôm nay"]
-    
-    if member_id and member_id in family_data:
-        preferences = family_data[member_id].get("preferences", {})
-        
-        if preferences.get("hobby"):
-            hobby = preferences["hobby"].lower()
-            if any(keyword in hobby for keyword in ["bóng đá", "thể thao"]):
-                search_topics.append("tin bóng đá mới nhất")
-            elif any(keyword in hobby for keyword in ["phim", "điện ảnh"]):
-                search_topics.append("tin điện ảnh mới nhất")
-            elif any(keyword in hobby for keyword in ["âm nhạc", "ca nhạc"]):
-                search_topics.append("tin âm nhạc mới nhất")
-            elif any(keyword in hobby for keyword in ["công nghệ", "máy tính"]):
-                search_topics.append("tin công nghệ mới nhất")
-    
-    # Chọn ngẫu nhiên một chủ đề
-    search_query = random.choice(search_topics)
-    
-    # Tìm kiếm tin tức
-    news_results = search_with_tavily(tavily_api_key, search_query)
-    
-    news_questions = []
-    if news_results and "results" in news_results:
-        # Lọc tin tức mới nhất (2 ngày gần đây)
-        recent_news = []
-        for result in news_results["results"]:
-            # Thử trích xuất ngày từ tiêu đề hoặc nội dung
-            content = result.get("content", "") + " " + result.get("title", "")
-            
-            # Kiểm tra từ khóa thời gian
-            has_recent_keywords = any(keyword in content.lower() for keyword in 
-                                   ["hôm nay", "vừa qua", "mới đây", "vừa mới", "24h qua", 
-                                    "vừa kết thúc", "vừa diễn ra", "sáng nay", "trưa nay", 
-                                    "chiều nay", "tối nay"])
-            
-            if has_recent_keywords:
-                recent_news.append(result)
-        
-        # Nếu không có tin gần đây, lấy 3 tin đầu tiên
-        if not recent_news:
-            recent_news = news_results["results"][:3]
-        
-        # Tạo câu hỏi từ tin tức
-        for news in recent_news[:max_questions]:
-            title = news.get("title", "").strip()
-            if title:
-                # Loại bỏ dấu chấm cuối câu nếu có
-                if title.endswith("."):
-                    title = title[:-1]
-                # Chuyển thành câu hỏi
-                question = f"{title}?"
-                news_questions.append(question)
-    
-    # Lưu vào cache
-    if "news_question_cache" not in st.session_state:
-        st.session_state.news_question_cache = {}
-    
-    st.session_state.news_question_cache[cache_key] = news_questions
-    
-    return news_questions
-
 # Thêm hàm tạo câu hỏi gợi ý động
-def generate_dynamic_suggested_questions(api_key, tavily_api_key=None, member_id=None, max_questions=5):
+def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=5):
     """
     Tạo câu hỏi gợi ý cá nhân hóa và linh động dựa trên thông tin thành viên, 
-    lịch sử trò chuyện, thời điểm hiện tại và tin tức thời gian thực
+    lịch sử trò chuyện và thời điểm hiện tại
     """
     # Kiểm tra cache để tránh tạo câu hỏi mới quá thường xuyên
     cache_key = f"suggested_questions_{member_id}_{datetime.datetime.now().strftime('%Y-%m-%d_%H')}"
     if "question_cache" in st.session_state and cache_key in st.session_state.question_cache:
-        # Trả về kết hợp của câu hỏi từ cache và tin tức thời gian thực
-        cached_questions = st.session_state.question_cache[cache_key]
-        
-        # Nếu có Tavily API key, thêm câu hỏi từ tin tức
-        if tavily_api_key:
-            news_questions = generate_realtime_news_questions(tavily_api_key, member_id, 2)
-            
-            # Kết hợp câu hỏi tin tức với câu hỏi từ cache
-            combined_questions = news_questions + [q for q in cached_questions if q not in news_questions]
-            return combined_questions[:max_questions]
-        
-        return cached_questions
+        return st.session_state.question_cache[cache_key]
     
     # Xác định trạng thái người dùng hiện tại
     member_info = {}
@@ -357,7 +147,7 @@ def generate_dynamic_suggested_questions(api_key, tavily_api_key=None, member_id
             logger.error(f"Lỗi khi tạo câu hỏi với OpenAI: {e}")
             # Tiếp tục với phương thức 2 (dự phòng)
     
-    # Phương thức 2: Dùng mẫu câu + thông tin cá nhân nếu không thể sử dụng OpenAI API
+            # Phương thức 2: Dùng mẫu câu + thông tin cá nhân nếu không thể sử dụng OpenAI API
     if not questions:
         logger.info("Sử dụng phương pháp mẫu câu để tạo câu hỏi gợi ý")
         
@@ -605,16 +395,6 @@ def generate_dynamic_suggested_questions(api_key, tavily_api_key=None, member_id
                 if question not in questions:
                     questions.append(question)
     
-    # Thêm câu hỏi từ tin tức thời gian thực
-    if tavily_api_key and len(questions) < max_questions:
-        try:
-            news_questions = generate_realtime_news_questions(tavily_api_key, member_id, max_questions - len(questions))
-            questions = news_questions + [q for q in questions if q not in news_questions]
-            # Giới hạn số lượng câu hỏi
-            questions = questions[:max_questions]
-        except Exception as e:
-            logger.error(f"Lỗi khi tạo câu hỏi từ tin tức: {e}")
-    
     # Lưu câu hỏi vào cache
     if "question_cache" not in st.session_state:
         st.session_state.question_cache = {}
@@ -661,6 +441,11 @@ def load_data(file_path):
                 if not isinstance(data, dict):
                     print(f"Dữ liệu trong {file_path} không phải từ điển. Khởi tạo lại.")
                     return {}
+                return data
+        except Exception as e:
+            print(f"Lỗi khi đọc {file_path}: {e}")
+            return {}
+    return {}
 
 def save_data(file_path, data):
     try:
@@ -712,36 +497,87 @@ def verify_data_structure():
     save_data(NOTES_DATA_FILE, notes_data)
     save_data(CHAT_HISTORY_FILE, chat_history)
 
-# Hàm stream phản hồi từ GPT-4o-mini
-def stream_llm_response(api_key, tavily_api_key=None, system_prompt="", current_member=None, auto_search=True):
-    """Hàm tạo và xử lý phản hồi từ mô hình AI với tích hợp tìm kiếm Internet"""
-    response_message = ""
+# Tải dữ liệu ban đầu
+family_data = load_data(FAMILY_DATA_FILE)
+events_data = load_data(EVENTS_DATA_FILE)
+notes_data = load_data(NOTES_DATA_FILE)
+chat_history = load_data(CHAT_HISTORY_FILE)  # Tải lịch sử chat
+
+# Kiểm tra và sửa cấu trúc dữ liệu
+verify_data_structure()
+
+# Hàm chuyển đổi hình ảnh sang base64
+def get_image_base64(image_raw):
+    buffered = BytesIO()
+    image_raw.save(buffered, format=image_raw.format)
+    img_byte = buffered.getvalue()
+    return base64.b64encode(img_byte).decode('utf-8')
+
+# Hàm tạo tóm tắt lịch sử chat
+def generate_chat_summary(messages, api_key):
+    """Tạo tóm tắt từ lịch sử trò chuyện"""
+    if not messages or len(messages) < 3:  # Cần ít nhất một vài tin nhắn để tạo tóm tắt
+        return "Chưa có đủ tin nhắn để tạo tóm tắt."
     
-    # Kiểm tra nếu tin nhắn cuối là từ người dùng
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
-        last_user_message = st.session_state.messages[-1]["content"][0]["text"] if st.session_state.messages[-1]["content"] else ""
-        
-        # Tự động tìm kiếm Internet nếu được bật và có Tavily API key
-        search_results = None
-        if auto_search and tavily_api_key and last_user_message:
-            # Phân tích nếu tin nhắn này cần tìm kiếm
-            needs_search = any(keyword in last_user_message.lower() for keyword in 
-                              ["là gì", "ở đâu", "bao giờ", "khi nào", "thế nào", 
-                               "ai đã", "tại sao", "mới nhất", "tin tức", "kết quả",
-                               "giá bao nhiêu", "diễn ra", "thông tin", "hiện tại",
-                               "gần đây", "cập nhật", "bao nhiêu", "vừa", "mới"])
-            
-            if needs_search:
-                logger.info(f"Tự động tìm kiếm cho: {last_user_message}")
-                search_results = search_with_tavily(tavily_api_key, last_user_message)
-                
-                if search_results:
-                    # Lưu lịch sử tìm kiếm
-                    save_search_history(last_user_message, search_results, current_member)
-                    
-                    # Cập nhật system prompt với kết quả tìm kiếm
-                    system_prompt = get_updated_system_prompt(system_prompt, search_results, last_user_message)
-                    logger.info("Đã cập nhật system prompt với kết quả tìm kiếm")
+    # Chuẩn bị dữ liệu cho API
+    content_texts = []
+    for message in messages:
+        if "content" in message:
+            # Xử lý cả tin nhắn văn bản và hình ảnh
+            if isinstance(message["content"], list):
+                for content in message["content"]:
+                    if content["type"] == "text":
+                        content_texts.append(f"{message['role'].upper()}: {content['text']}")
+            else:
+                content_texts.append(f"{message['role'].upper()}: {message['content']}")
+    
+    # Ghép tất cả nội dung lại
+    full_content = "\n".join(content_texts)
+    
+    # Gọi API để tạo tóm tắt
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=openai_model,
+            messages=[
+                {"role": "system", "content": "Bạn là trợ lý tạo tóm tắt. Hãy tóm tắt cuộc trò chuyện dưới đây thành 1-3 câu ngắn gọn, tập trung vào các thông tin và yêu cầu chính."},
+                {"role": "user", "content": f"Tóm tắt cuộc trò chuyện sau:\n\n{full_content}"}
+            ],
+            temperature=0.3,
+            max_tokens=150
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        logger.error(f"Lỗi khi tạo tóm tắt: {e}")
+        return "Không thể tạo tóm tắt vào lúc này."
+
+# Hàm lưu lịch sử trò chuyện cho người dùng hiện tại
+def save_chat_history(member_id, messages, summary=None):
+    """Lưu lịch sử chat cho một thành viên cụ thể"""
+    if member_id not in chat_history:
+        chat_history[member_id] = []
+    
+    # Tạo bản ghi mới
+    history_entry = {
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "messages": messages,
+        "summary": summary if summary else ""
+    }
+    
+    # Thêm vào lịch sử và giới hạn số lượng
+    chat_history[member_id].insert(0, history_entry)  # Thêm vào đầu danh sách
+    
+    # Giới hạn lưu tối đa 10 cuộc trò chuyện gần nhất
+    if len(chat_history[member_id]) > 10:
+        chat_history[member_id] = chat_history[member_id][:10]
+    
+    # Lưu vào file
+    save_data(CHAT_HISTORY_FILE, chat_history)
+
+# Hàm stream phản hồi từ GPT-4o-mini
+def stream_llm_response(api_key, system_prompt="", current_member=None):
+    """Hàm tạo và xử lý phản hồi từ mô hình AI"""
+    response_message = ""
     
     # Tạo tin nhắn với system prompt
     messages = [{"role": "system", "content": system_prompt}]
@@ -1045,19 +881,12 @@ def main():
         st.session_state.process_suggested = False
     if "question_cache" not in st.session_state:
         st.session_state.question_cache = {}
-    if "news_question_cache" not in st.session_state:
-        st.session_state.news_question_cache = {}
 
     # --- Thanh bên ---
     with st.sidebar:
         default_openai_api_key = os.getenv("OPENAI_API_KEY") if os.getenv("OPENAI_API_KEY") is not None else ""
-        default_tavily_api_key = os.getenv("TAVILY_API_KEY") if os.getenv("TAVILY_API_KEY") is not None else ""
-        
-        with st.popover("🔐 API Keys"):
-            openai_api_key = st.text_input("OpenAI API Key:", value=default_openai_api_key, type="password")
-            tavily_api_key = st.text_input("Tavily API Key:", value=default_tavily_api_key, type="password")
-            auto_search = st.checkbox("Tự động tìm kiếm Internet", value=True)
-            st.info("Tavily API Key dùng để tìm kiếm thông tin trên Internet.")
+        with st.popover("🔐 OpenAI API Key"):
+            openai_api_key = st.text_input("Nhập OpenAI API Key của bạn:", value=default_openai_api_key, type="password")
         
         # Chọn người dùng hiện tại
         st.write("## 👤 Chọn người dùng")
@@ -1102,445 +931,6 @@ def main():
                             st.session_state.messages = history.get('messages', [])
                             st.rerun()
                         st.divider()
-        
-        # Form chỉnh sửa sự kiện (xuất hiện khi đang chỉnh sửa)
-        if "editing_event" in st.session_state and st.session_state.editing_event:
-            event_id = st.session_state.editing_event
-            event = events_data[event_id]
-            
-            with st.form(f"edit_event_{event_id}"):
-                st.write(f"Chỉnh sửa sự kiện: {event['title']}")
-                
-                # Chuyển đổi định dạng ngày
-                try:
-                    event_date_obj = datetime.datetime.strptime(event["date"], "%Y-%m-%d").date()
-                except:
-                    event_date_obj = datetime.date.today()
-                
-                # Chuyển đổi định dạng giờ
-                try:
-                    event_time_obj = datetime.datetime.strptime(event["time"], "%H:%M").time()
-                except:
-                    event_time_obj = datetime.datetime.now().time()
-                
-                # Các trường chỉnh sửa
-                new_title = st.text_input("Tiêu đề", event["title"])
-                new_date = st.date_input("Ngày", event_date_obj)
-                new_time = st.time_input("Giờ", event_time_obj)
-                new_desc = st.text_area("Mô tả", event["description"])
-                
-                # Multi-select cho người tham gia
-                try:
-                    member_names = [member.get("name", "") for member_id, member in family_data.items() 
-                                   if isinstance(member, dict) and member.get("name")]
-                    new_participants = st.multiselect("Người tham gia", member_names, default=event.get("participants", []))
-                except Exception as e:
-                    st.error(f"Lỗi khi tải danh sách thành viên: {e}")
-                    new_participants = []
-                
-                save_event_edits = st.form_submit_button("Lưu")
-                cancel_event_edits = st.form_submit_button("Hủy")
-                
-                if save_event_edits:
-                    events_data[event_id]["title"] = new_title
-                    events_data[event_id]["date"] = new_date.strftime("%Y-%m-%d")
-                    events_data[event_id]["time"] = new_time.strftime("%H:%M")
-                    events_data[event_id]["description"] = new_desc
-                    events_data[event_id]["participants"] = new_participants
-                    save_data(EVENTS_DATA_FILE, events_data)
-                    st.session_state.editing_event = None
-                    st.success("Đã cập nhật sự kiện!")
-                    st.rerun()
-                
-                if cancel_event_edits:
-                    st.session_state.editing_event = None
-                    st.rerun()
-        
-        st.divider()
-        
-        # Quản lý ghi chú
-        st.write("## Ghi chú")
-        
-        # Xem ghi chú - lọc theo người dùng hiện tại
-        with st.expander("📝 Ghi chú"):
-            # Lọc ghi chú theo người dùng hiện tại
-            if st.session_state.current_member:
-                filtered_notes = {note_id: note for note_id, note in notes_data.items() 
-                               if note.get("created_by") == st.session_state.current_member}
-            else:
-                filtered_notes = notes_data
-            
-            # Sắp xếp ghi chú theo ngày tạo (với xử lý lỗi)
-            try:
-                sorted_notes = sorted(
-                    filtered_notes.items(),
-                    key=lambda x: x[1].get("created_on", ""),
-                    reverse=True
-                )
-            except Exception as e:
-                st.error(f"Lỗi khi sắp xếp ghi chú: {e}")
-                sorted_notes = []
-            
-            if not sorted_notes:
-                st.write("Không có ghi chú nào")
-            
-            for note_id, note in sorted_notes:
-                st.write(f"**{note.get('title', 'Ghi chú không tiêu đề')}**")
-                st.write(note.get('content', ''))
-                
-                if note.get('tags'):
-                    tags = ', '.join([f"#{tag}" for tag in note['tags']])
-                    st.write(f"🏷️ {tags}")
-                
-                # Hiển thị người tạo
-                if note.get('created_by') and note.get('created_by') in family_data:
-                    creator_name = family_data[note.get('created_by')].get("name", "")
-                    st.write(f"👤 Tạo bởi: {creator_name}")
-                
-                col1, col2 = st.columns(2)
-                with col2:
-                    if st.button(f"Xóa", key=f"delete_note_{note_id}"):
-                        del notes_data[note_id]
-                        save_data(NOTES_DATA_FILE, notes_data)
-                        st.success(f"Đã xóa ghi chú!")
-                        st.rerun()
-                st.divider()
-        
-        st.divider()
-        
-        # Nút làm mới câu hỏi gợi ý
-        if st.button("🔄 Làm mới câu hỏi gợi ý"):
-            # Xóa cache để tạo câu hỏi mới
-            if "question_cache" in st.session_state:
-                st.session_state.question_cache = {}
-            if "news_question_cache" in st.session_state:
-                st.session_state.news_question_cache = {}
-            st.rerun()
-        
-        def reset_conversation():
-            if "messages" in st.session_state and len(st.session_state.messages) > 0:
-                # Trước khi xóa, lưu lịch sử trò chuyện nếu đang trò chuyện với một thành viên
-                if st.session_state.current_member and openai_api_key:
-                    summary = generate_chat_summary(st.session_state.messages, openai_api_key)
-                    save_chat_history(st.session_state.current_member, st.session_state.messages, summary)
-                # Xóa tin nhắn
-                st.session_state.pop("messages", None)
-
-        st.button(
-            "🗑️ Xóa lịch sử trò chuyện", 
-            on_click=reset_conversation,
-        )
-
-    # --- Nội dung chính ---
-    # Kiểm tra nếu người dùng đã nhập OpenAI API Key, nếu không thì hiển thị cảnh báo
-    if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
-        st.write("#")
-        st.warning("⬅️ Vui lòng nhập OpenAI API Key để tiếp tục...")
-        
-        st.write("""
-        ### Chào mừng bạn đến với Trợ lý Gia đình!
-        
-        Ứng dụng này giúp bạn:
-        
-        - 👨‍👩‍👧‍👦 Lưu trữ thông tin và sở thích của các thành viên trong gia đình
-        - 📅 Quản lý các sự kiện gia đình
-        - 📝 Tạo và lưu trữ các ghi chú
-        - 💬 Trò chuyện với trợ lý AI để cập nhật thông tin
-        - 👤 Cá nhân hóa trò chuyện theo từng thành viên
-        - 📜 Lưu lịch sử trò chuyện và tạo tóm tắt tự động
-        - 🔍 Tìm kiếm thông tin trên Internet thông qua Tavily API
-        
-        Để bắt đầu, hãy nhập OpenAI API Key của bạn ở thanh bên trái.
-        """)
-
-    else:
-        client = OpenAI(api_key=openai_api_key)
-
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-
-        # Hiển thị các tin nhắn trước đó nếu có
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                for content in message["content"]:
-                    if content["type"] == "text":
-                        st.write(content["text"])
-                    elif content["type"] == "image_url":      
-                        st.image(content["image_url"]["url"])
-
-        # Hiển thị banner thông tin người dùng hiện tại
-        if st.session_state.current_member and st.session_state.current_member in family_data:
-            member_name = family_data[st.session_state.current_member].get("name", "")
-            st.info(f"👤 Đang trò chuyện với tư cách: **{member_name}**")
-        elif st.session_state.current_member is None:
-            st.info("👨‍👩‍👧‍👦 Đang trò chuyện trong chế độ chung")
-        
-        # System prompt cho trợ lý
-        system_prompt = f"""
-        Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
-        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn phải thực hiện ngay các hành động sau:
-        
-        1. Thêm thông tin về thành viên gia đình (tên, tuổi, sở thích)
-        2. Cập nhật sở thích của thành viên gia đình
-        3. Thêm, cập nhật, hoặc xóa sự kiện
-        4. Thêm ghi chú
-        5. Phân tích hình ảnh người dùng đưa ra (món ăn, hoạt động gia đình, v.v.)
-        6. Tìm kiếm thông tin trực tuyến để trả lời câu hỏi mới nhất
-        
-        QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
-        
-        - Thêm thành viên: ##ADD_FAMILY_MEMBER:{{"name":"Tên","age":"Tuổi","preferences":{{"food":"Món ăn","hobby":"Sở thích","color":"Màu sắc"}}}}##
-        - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở_thích","value":"giá_trị"}}##
-        - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
-        - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
-        - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
-        - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
-        
-        QUY TẮC THÊM SỰ KIỆN ĐƠN GIẢN:
-        1. Khi được yêu cầu thêm sự kiện, hãy thực hiện NGAY LẬP TỨC mà không cần hỏi thêm thông tin không cần thiết.
-        2. Khi người dùng nói "ngày mai" hoặc "tuần sau", hãy tự động tính toán ngày trong cú pháp YYYY-MM-DD.
-        3. Nếu không có thời gian cụ thể, sử dụng thời gian mặc định là 19:00.
-        4. Sử dụng mô tả ngắn gọn từ yêu cầu của người dùng.
-        5. Chỉ hỏi thông tin nếu thực sự cần thiết, tránh nhiều bước xác nhận.
-        6. Sau khi thêm/cập nhật/xóa sự kiện, tóm tắt ngắn gọn hành động đã thực hiện.
-        
-        Hôm nay là {datetime.datetime.now().strftime("%d/%m/%Y")}.
-        
-        CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
-        
-        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn mà không cần quá nhiều bước xác nhận.
-        
-        Đối với hình ảnh:
-        - Nếu người dùng gửi hình ảnh món ăn, hãy mô tả món ăn, và đề xuất cách nấu hoặc thông tin dinh dưỡng nếu phù hợp
-        - Nếu là hình ảnh hoạt động gia đình, hãy mô tả hoạt động và đề xuất cách ghi nhớ khoảnh khắc đó
-        - Với bất kỳ hình ảnh nào, hãy giúp người dùng liên kết nó với thành viên gia đình hoặc sự kiện nếu phù hợp
-        
-        THÔNG TIN TÌM KIẾM:
-        Khi người dùng hỏi về tin tức, thông tin hiện tại, hoặc sự kiện gần đây, bạn có thể dựa vào kết quả tìm kiếm Internet 
-        (nếu có) để cung cấp câu trả lời chính xác và cập nhật nhất. Đừng đề cập rằng bạn đang sử dụng kết quả tìm kiếm trừ khi 
-        người dùng hỏi trực tiếp về nguồn thông tin của bạn.
-        """
-        
-        # Thêm thông tin về người dùng hiện tại
-        if st.session_state.current_member and st.session_state.current_member in family_data:
-            current_member = family_data[st.session_state.current_member]
-            system_prompt += f"""
-            THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:
-            Bạn đang trò chuyện với: {current_member.get('name')}
-            Tuổi: {current_member.get('age', '')}
-            Sở thích: {json.dumps(current_member.get('preferences', {}), ensure_ascii=False)}
-            
-            QUAN TRỌNG: Hãy điều chỉnh cách giao tiếp và đề xuất phù hợp với người dùng này. Các sự kiện và ghi chú sẽ được ghi danh nghĩa người này tạo.
-            """
-        
-        # Thêm thông tin dữ liệu
-        system_prompt += f"""
-        Thông tin hiện tại về gia đình:
-        {json.dumps(family_data, ensure_ascii=False, indent=2)}
-        
-        Sự kiện sắp tới:
-        {json.dumps(events_data, ensure_ascii=False, indent=2)}
-        
-        Ghi chú:
-        {json.dumps(notes_data, ensure_ascii=False, indent=2)}
-        
-        Hãy hiểu và đáp ứng nhu cầu của người dùng một cách tự nhiên và hữu ích. Không hiển thị các lệnh đặc biệt
-        trong phản hồi của bạn, chỉ sử dụng chúng để thực hiện các hành động được yêu cầu.
-        """
-        
-        # Kiểm tra và xử lý câu hỏi gợi ý đã chọn
-        if st.session_state.process_suggested and st.session_state.suggested_question:
-            question = st.session_state.suggested_question
-            st.session_state.suggested_question = None
-            st.session_state.process_suggested = False
-            
-            # Thêm câu hỏi vào messages
-            st.session_state.messages.append(
-                {
-                    "role": "user", 
-                    "content": [{
-                        "type": "text",
-                        "text": question,
-                    }]
-                }
-            )
-            
-            # Hiển thị tin nhắn người dùng
-            with st.chat_message("user"):
-                st.markdown(question)
-            
-            # Xử lý phản hồi từ trợ lý
-            with st.chat_message("assistant"):
-                # Kiểm tra nếu có Tavily API key hợp lệ
-                valid_tavily_api_key = tavily_api_key if tavily_api_key and tavily_api_key.startswith("tvly-") else None
-                
-                st.write_stream(stream_llm_response(
-                    api_key=openai_api_key,
-                    tavily_api_key=valid_tavily_api_key,
-                    system_prompt=system_prompt,
-                    current_member=st.session_state.current_member,
-                    auto_search=auto_search
-                ))
-            
-            # Rerun để cập nhật giao diện và tránh xử lý trùng lặp
-            st.rerun()
-        
-        # Hiển thị câu hỏi gợi ý
-        if openai_api_key:
-            # Container cho câu hỏi gợi ý với CSS tùy chỉnh
-            st.markdown("""
-            <style>
-            .suggestion-container {
-                margin-top: 20px;
-                margin-bottom: 20px;
-            }
-            .suggestion-title {
-                font-size: 16px;
-                font-weight: 500;
-                margin-bottom: 10px;
-                color: #555;
-            }
-            .suggestion-box {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 10px;
-                margin-bottom: 15px;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            
-            st.markdown('<div class="suggestion-container">', unsafe_allow_html=True)
-            st.markdown('<div class="suggestion-title">💡 Câu hỏi gợi ý cho bạn:</div>', unsafe_allow_html=True)
-            
-            # Kiểm tra Tavily API key
-            valid_tavily_api_key = tavily_api_key if tavily_api_key and tavily_api_key.startswith("tvly-") else None
-            
-            # Tạo câu hỏi gợi ý động
-            suggested_questions = generate_dynamic_suggested_questions(
-                api_key=openai_api_key,
-                tavily_api_key=valid_tavily_api_key,
-                member_id=st.session_state.current_member,
-                max_questions=5
-            )
-            
-            # Hiển thị các nút cho câu hỏi gợi ý
-            st.markdown('<div class="suggestion-box">', unsafe_allow_html=True)
-            
-            # Chia câu hỏi thành 2 dòng
-            row1, row2 = st.columns([1, 1])
-            
-            with row1:
-                for i, question in enumerate(suggested_questions[:3]):
-                    if st.button(
-                        question,
-                        key=f"suggest_q_{i}",
-                        use_container_width=True
-                    ):
-                        handle_suggested_question(question)
-            
-            with row2:
-                for i, question in enumerate(suggested_questions[3:], 3):
-                    if st.button(
-                        question,
-                        key=f"suggest_q_{i}",
-                        use_container_width=True
-                    ):
-                        handle_suggested_question(question)
-            
-            st.markdown('</div></div>', unsafe_allow_html=True)
-
-        # Thêm chức năng hình ảnh
-        with st.sidebar:
-            st.divider()
-            st.write("## 🖼️ Hình ảnh")
-            st.write("Thêm hình ảnh để hỏi trợ lý về món ăn, hoạt động gia đình...")
-
-            def add_image_to_messages():
-                if st.session_state.uploaded_img or ("camera_img" in st.session_state and st.session_state.camera_img):
-                    img_type = st.session_state.uploaded_img.type if st.session_state.uploaded_img else "image/jpeg"
-                    raw_img = Image.open(st.session_state.uploaded_img or st.session_state.camera_img)
-                    img = get_image_base64(raw_img)
-                    st.session_state.messages.append(
-                        {
-                            "role": "user", 
-                            "content": [{
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{img_type};base64,{img}"}
-                            }]
-                        }
-                    )
-                    st.rerun()
-            
-            cols_img = st.columns(2)
-            with cols_img[0]:
-                with st.popover("📁 Tải lên"):
-                    st.file_uploader(
-                        "Tải lên hình ảnh:", 
-                        type=["png", "jpg", "jpeg"],
-                        accept_multiple_files=False,
-                        key="uploaded_img",
-                        on_change=add_image_to_messages,
-                    )
-
-            with cols_img[1]:                    
-                with st.popover("📸 Camera"):
-                    activate_camera = st.checkbox("Bật camera")
-                    if activate_camera:
-                        st.camera_input(
-                            "Chụp ảnh", 
-                            key="camera_img",
-                            on_change=add_image_to_messages,
-                        )
-
-        # Chat input và các tùy chọn âm thanh
-        audio_prompt = None
-        if "prev_speech_hash" not in st.session_state:
-            st.session_state.prev_speech_hash = None
-
-        # Ghi âm
-        st.write("🎤 Bạn có thể nói:")
-        speech_input = audio_recorder("Nhấn để nói", icon_size="2x", neutral_color="#6ca395")
-        if speech_input and st.session_state.prev_speech_hash != hash(speech_input):
-            st.session_state.prev_speech_hash = hash(speech_input)
-            
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=("audio.wav", speech_input),
-            )
-
-            audio_prompt = transcript.text
-
-        # Chat input
-        if prompt := st.chat_input("Xin chào! Tôi có thể giúp gì cho gia đình bạn?") or audio_prompt:
-            st.session_state.messages.append(
-                {
-                    "role": "user", 
-                    "content": [{
-                        "type": "text",
-                        "text": prompt or audio_prompt,
-                    }]
-                }
-            )
-            
-            # Hiển thị tin nhắn mới
-            with st.chat_message("user"):
-                st.markdown(prompt or audio_prompt)
-
-            with st.chat_message("assistant"):
-                # Kiểm tra nếu có Tavily API key hợp lệ
-                valid_tavily_api_key = tavily_api_key if tavily_api_key and tavily_api_key.startswith("tvly-") else None
-                
-                # Gọi phiên bản mới của stream_llm_response với tìm kiếm Tavily
-                st.write_stream(stream_llm_response(
-                    api_key=openai_api_key,
-                    tavily_api_key=valid_tavily_api_key, 
-                    system_prompt=system_prompt,
-                    current_member=st.session_state.current_member,
-                    auto_search=auto_search
-                ))
-
-if __name__=="__main__":
-    main()
         
         st.write("## Thông tin Gia đình")
         
@@ -1631,6 +1021,15 @@ if __name__=="__main__":
                         }
                         save_data(FAMILY_DATA_FILE, family_data)
                         st.session_state.editing_member = None
+                        st.success("Đã cập nhật thông tin!")
+                        st.rerun()
+                    
+                    if cancel_edits:
+                        st.session_state.editing_member = None
+                        st.rerun()
+            else:
+                st.error(f"Không tìm thấy thành viên với ID: {member_id}")
+                st.session_state.editing_member = None
         
         st.divider()
         
@@ -1742,94 +1141,418 @@ if __name__=="__main__":
                         st.success(f"Đã xóa sự kiện!")
                         st.rerun()
                 st.divider()
-                        st.success("Đã cập nhật thông tin!")
-                        st.rerun()
-                    
-                    if cancel_edits:
-                        st.session_state.editing_member = None
-                        st.rerun()
+        
+        # Form chỉnh sửa sự kiện (xuất hiện khi đang chỉnh sửa)
+        if "editing_event" in st.session_state and st.session_state.editing_event:
+            event_id = st.session_state.editing_event
+            event = events_data[event_id]
+            
+            with st.form(f"edit_event_{event_id}"):
+                st.write(f"Chỉnh sửa sự kiện: {event['title']}")
+                
+                # Chuyển đổi định dạng ngày
+                try:
+                    event_date_obj = datetime.datetime.strptime(event["date"], "%Y-%m-%d").date()
+                except:
+                    event_date_obj = datetime.date.today()
+                
+                # Chuyển đổi định dạng giờ
+                try:
+                    event_time_obj = datetime.datetime.strptime(event["time"], "%H:%M").time()
+                except:
+                    event_time_obj = datetime.datetime.now().time()
+                
+                # Các trường chỉnh sửa
+                new_title = st.text_input("Tiêu đề", event["title"])
+                new_date = st.date_input("Ngày", event_date_obj)
+                new_time = st.time_input("Giờ", event_time_obj)
+                new_desc = st.text_area("Mô tả", event["description"])
+                
+                # Multi-select cho người tham gia
+                try:
+                    member_names = [member.get("name", "") for member_id, member in family_data.items() 
+                                   if isinstance(member, dict) and member.get("name")]
+                    new_participants = st.multiselect("Người tham gia", member_names, default=event.get("participants", []))
+                except Exception as e:
+                    st.error(f"Lỗi khi tải danh sách thành viên: {e}")
+                    new_participants = []
+                
+                save_event_edits = st.form_submit_button("Lưu")
+                cancel_event_edits = st.form_submit_button("Hủy")
+                
+                if save_event_edits:
+                    events_data[event_id]["title"] = new_title
+                    events_data[event_id]["date"] = new_date.strftime("%Y-%m-%d")
+                    events_data[event_id]["time"] = new_time.strftime("%H:%M")
+                    events_data[event_id]["description"] = new_desc
+                    events_data[event_id]["participants"] = new_participants
+                    save_data(EVENTS_DATA_FILE, events_data)
+                    st.session_state.editing_event = None
+                    st.success("Đã cập nhật sự kiện!")
+                    st.rerun()
+                
+                if cancel_event_edits:
+                    st.session_state.editing_event = None
+                    st.rerun()
+        
+        st.divider()
+        
+        # Quản lý ghi chú
+        st.write("## Ghi chú")
+        
+        # Xem ghi chú - lọc theo người dùng hiện tại
+        with st.expander("📝 Ghi chú"):
+            # Lọc ghi chú theo người dùng hiện tại
+            if st.session_state.current_member:
+                filtered_notes = {note_id: note for note_id, note in notes_data.items() 
+                               if note.get("created_by") == st.session_state.current_member}
             else:
-                st.error(f"Không tìm thấy thành viên với ID: {member_id}")
-                st.session_state.editing_member = None
+                filtered_notes = notes_data
+            
+            # Sắp xếp ghi chú theo ngày tạo (với xử lý lỗi)
+            try:
+                sorted_notes = sorted(
+                    filtered_notes.items(),
+                    key=lambda x: x[1].get("created_on", ""),
+                    reverse=True
+                )
+            except Exception as e:
+                st.error(f"Lỗi khi sắp xếp ghi chú: {e}")
+                sorted_notes = []
+            
+            if not sorted_notes:
+                st.write("Không có ghi chú nào")
+            
+            for note_id, note in sorted_notes:
+                st.write(f"**{note.get('title', 'Ghi chú không tiêu đề')}**")
+                st.write(note.get('content', ''))
+                
+                if note.get('tags'):
+                    tags = ', '.join([f"#{tag}" for tag in note['tags']])
+                    st.write(f"🏷️ {tags}")
+                
+                # Hiển thị người tạo
+                if note.get('created_by') and note.get('created_by') in family_data:
+                    creator_name = family_data[note.get('created_by')].get("name", "")
+                    st.write(f"👤 Tạo bởi: {creator_name}")
+                
+                col1, col2 = st.columns(2)
+                with col2:
+                    if st.button(f"Xóa", key=f"delete_note_{note_id}"):
+                        del notes_data[note_id]
+                        save_data(NOTES_DATA_FILE, notes_data)
+                        st.success(f"Đã xóa ghi chú!")
+                        st.rerun()
+                st.divider()
+        
+        st.divider()
+        
+        # Nút làm mới câu hỏi gợi ý
+        if st.button("🔄 Làm mới câu hỏi gợi ý"):
+            # Xóa cache để tạo câu hỏi mới
+            if "question_cache" in st.session_state:
+                st.session_state.question_cache = {}
+            st.rerun()
+        
+        def reset_conversation():
+            if "messages" in st.session_state and len(st.session_state.messages) > 0:
+                # Trước khi xóa, lưu lịch sử trò chuyện nếu đang trò chuyện với một thành viên
+                if st.session_state.current_member and openai_api_key:
+                    summary = generate_chat_summary(st.session_state.messages, openai_api_key)
+                    save_chat_history(st.session_state.current_member, st.session_state.messages, summary)
+                # Xóa tin nhắn
+                st.session_state.pop("messages", None)
 
-# Tải dữ liệu ban đầu
-family_data = load_data(FAMILY_DATA_FILE)
-events_data = load_data(EVENTS_DATA_FILE)
-notes_data = load_data(NOTES_DATA_FILE)
-chat_history = load_data(CHAT_HISTORY_FILE)  # Tải lịch sử chat
+        st.button(
+            "🗑️ Xóa lịch sử trò chuyện", 
+            on_click=reset_conversation,
+        )
 
-# Kiểm tra và sửa cấu trúc dữ liệu
-verify_data_structure()
+    # --- Nội dung chính ---
+    # Kiểm tra nếu người dùng đã nhập OpenAI API Key, nếu không thì hiển thị cảnh báo
+    if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
+        st.write("#")
+        st.warning("⬅️ Vui lòng nhập OpenAI API Key để tiếp tục...")
+        
+        st.write("""
+        ### Chào mừng bạn đến với Trợ lý Gia đình!
+        
+        Ứng dụng này giúp bạn:
+        
+        - 👨‍👩‍👧‍👦 Lưu trữ thông tin và sở thích của các thành viên trong gia đình
+        - 📅 Quản lý các sự kiện gia đình
+        - 📝 Tạo và lưu trữ các ghi chú
+        - 💬 Trò chuyện với trợ lý AI để cập nhật thông tin
+        - 👤 Cá nhân hóa trò chuyện theo từng thành viên
+        - 📜 Lưu lịch sử trò chuyện và tạo tóm tắt tự động
+        
+        Để bắt đầu, hãy nhập OpenAI API Key của bạn ở thanh bên trái.
+        """)
 
-# Hàm chuyển đổi hình ảnh sang base64
-def get_image_base64(image_raw):
-    buffered = BytesIO()
-    image_raw.save(buffered, format=image_raw.format)
-    img_byte = buffered.getvalue()
-    return base64.b64encode(img_byte).decode('utf-8')
+    else:
+        client = OpenAI(api_key=openai_api_key)
 
-# Hàm tạo tóm tắt lịch sử chat
-def generate_chat_summary(messages, api_key):
-    """Tạo tóm tắt từ lịch sử trò chuyện"""
-    if not messages or len(messages) < 3:  # Cần ít nhất một vài tin nhắn để tạo tóm tắt
-        return "Chưa có đủ tin nhắn để tạo tóm tắt."
-    
-    # Chuẩn bị dữ liệu cho API
-    content_texts = []
-    for message in messages:
-        if "content" in message:
-            # Xử lý cả tin nhắn văn bản và hình ảnh
-            if isinstance(message["content"], list):
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        # Hiển thị các tin nhắn trước đó nếu có
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
                 for content in message["content"]:
                     if content["type"] == "text":
-                        content_texts.append(f"{message['role'].upper()}: {content['text']}")
-            else:
-                content_texts.append(f"{message['role'].upper()}: {message['content']}")
-    
-    # Ghép tất cả nội dung lại
-    full_content = "\n".join(content_texts)
-    
-    # Gọi API để tạo tóm tắt
-    try:
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=openai_model,
-            messages=[
-                {"role": "system", "content": "Bạn là trợ lý tạo tóm tắt. Hãy tóm tắt cuộc trò chuyện dưới đây thành 1-3 câu ngắn gọn, tập trung vào các thông tin và yêu cầu chính."},
-                {"role": "user", "content": f"Tóm tắt cuộc trò chuyện sau:\n\n{full_content}"}
-            ],
-            temperature=0.3,
-            max_tokens=150
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logger.error(f"Lỗi khi tạo tóm tắt: {e}")
-        return "Không thể tạo tóm tắt vào lúc này."
+                        st.write(content["text"])
+                    elif content["type"] == "image_url":      
+                        st.image(content["image_url"]["url"])
 
-# Hàm lưu lịch sử trò chuyện cho người dùng hiện tại
-def save_chat_history(member_id, messages, summary=None):
-    """Lưu lịch sử chat cho một thành viên cụ thể"""
-    if member_id not in chat_history:
-        chat_history[member_id] = []
-    
-    # Tạo bản ghi mới
-    history_entry = {
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "messages": messages,
-        "summary": summary if summary else ""
-    }
-    
-    # Thêm vào lịch sử và giới hạn số lượng
-    chat_history[member_id].insert(0, history_entry)  # Thêm vào đầu danh sách
-    
-    # Giới hạn lưu tối đa 10 cuộc trò chuyện gần nhất
-    if len(chat_history[member_id]) > 10:
-        chat_history[member_id] = chat_history[member_id][:10]
-    
-    # Lưu vào file
-    save_data(CHAT_HISTORY_FILE, chat_history)
-                return data
-        except Exception as e:
-            print(f"Lỗi khi đọc {file_path}: {e}")
-            return {}
-    return {}
+        # Hiển thị banner thông tin người dùng hiện tại
+        if st.session_state.current_member and st.session_state.current_member in family_data:
+            member_name = family_data[st.session_state.current_member].get("name", "")
+            st.info(f"👤 Đang trò chuyện với tư cách: **{member_name}**")
+        elif st.session_state.current_member is None:
+            st.info("👨‍👩‍👧‍👦 Đang trò chuyện trong chế độ chung")
+        
+        # System prompt cho trợ lý
+        system_prompt = f"""
+        Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
+        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn phải thực hiện ngay các hành động sau:
+        
+        1. Thêm thông tin về thành viên gia đình (tên, tuổi, sở thích)
+        2. Cập nhật sở thích của thành viên gia đình
+        3. Thêm, cập nhật, hoặc xóa sự kiện
+        4. Thêm ghi chú
+        5. Phân tích hình ảnh người dùng đưa ra (món ăn, hoạt động gia đình, v.v.)
+        
+        QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
+        
+        - Thêm thành viên: ##ADD_FAMILY_MEMBER:{{"name":"Tên","age":"Tuổi","preferences":{{"food":"Món ăn","hobby":"Sở thích","color":"Màu sắc"}}}}##
+        - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở_thích","value":"giá_trị"}}##
+        - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
+        - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
+        - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
+        - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
+        
+        QUY TẮC THÊM SỰ KIỆN ĐƠN GIẢN:
+        1. Khi được yêu cầu thêm sự kiện, hãy thực hiện NGAY LẬP TỨC mà không cần hỏi thêm thông tin không cần thiết.
+        2. Khi người dùng nói "ngày mai" hoặc "tuần sau", hãy tự động tính toán ngày trong cú pháp YYYY-MM-DD.
+        3. Nếu không có thời gian cụ thể, sử dụng thời gian mặc định là 19:00.
+        4. Sử dụng mô tả ngắn gọn từ yêu cầu của người dùng.
+        5. Chỉ hỏi thông tin nếu thực sự cần thiết, tránh nhiều bước xác nhận.
+        6. Sau khi thêm/cập nhật/xóa sự kiện, tóm tắt ngắn gọn hành động đã thực hiện.
+        
+        Hôm nay là {datetime.datetime.now().strftime("%d/%m/%Y")}.
+        
+        CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
+        
+        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn mà không cần quá nhiều bước xác nhận.
+        
+        Đối với hình ảnh:
+        - Nếu người dùng gửi hình ảnh món ăn, hãy mô tả món ăn, và đề xuất cách nấu hoặc thông tin dinh dưỡng nếu phù hợp
+        - Nếu là hình ảnh hoạt động gia đình, hãy mô tả hoạt động và đề xuất cách ghi nhớ khoảnh khắc đó
+        - Với bất kỳ hình ảnh nào, hãy giúp người dùng liên kết nó với thành viên gia đình hoặc sự kiện nếu phù hợp
+        """
+        
+        # Thêm thông tin về người dùng hiện tại
+        if st.session_state.current_member and st.session_state.current_member in family_data:
+            current_member = family_data[st.session_state.current_member]
+            system_prompt += f"""
+            THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:
+            Bạn đang trò chuyện với: {current_member.get('name')}
+            Tuổi: {current_member.get('age', '')}
+            Sở thích: {json.dumps(current_member.get('preferences', {}), ensure_ascii=False)}
+            
+            QUAN TRỌNG: Hãy điều chỉnh cách giao tiếp và đề xuất phù hợp với người dùng này. Các sự kiện và ghi chú sẽ được ghi danh nghĩa người này tạo.
+            """
+        
+        # Thêm thông tin dữ liệu
+        system_prompt += f"""
+        Thông tin hiện tại về gia đình:
+        {json.dumps(family_data, ensure_ascii=False, indent=2)}
+        
+        Sự kiện sắp tới:
+        {json.dumps(events_data, ensure_ascii=False, indent=2)}
+        
+        Ghi chú:
+        {json.dumps(notes_data, ensure_ascii=False, indent=2)}
+        
+        Hãy hiểu và đáp ứng nhu cầu của người dùng một cách tự nhiên và hữu ích. Không hiển thị các lệnh đặc biệt
+        trong phản hồi của bạn, chỉ sử dụng chúng để thực hiện các hành động được yêu cầu.
+        """
+        
+        # Kiểm tra và xử lý câu hỏi gợi ý đã chọn
+        if st.session_state.process_suggested and st.session_state.suggested_question:
+            question = st.session_state.suggested_question
+            st.session_state.suggested_question = None
+            st.session_state.process_suggested = False
+            
+            # Thêm câu hỏi vào messages
+            st.session_state.messages.append(
+                {
+                    "role": "user", 
+                    "content": [{
+                        "type": "text",
+                        "text": question,
+                    }]
+                }
+            )
+            
+            # Hiển thị tin nhắn người dùng
+            with st.chat_message("user"):
+                st.markdown(question)
+            
+            # Xử lý phản hồi từ trợ lý
+            with st.chat_message("assistant"):
+                st.write_stream(stream_llm_response(
+                    api_key=openai_api_key, 
+                    system_prompt=system_prompt,
+                    current_member=st.session_state.current_member
+                ))
+            
+            # Rerun để cập nhật giao diện và tránh xử lý trùng lặp
+            st.rerun()
+        
+        # Hiển thị câu hỏi gợi ý
+        if openai_api_key:
+            # Container cho câu hỏi gợi ý với CSS tùy chỉnh
+            st.markdown("""
+            <style>
+            .suggestion-container {
+                margin-top: 20px;
+                margin-bottom: 20px;
+            }
+            .suggestion-title {
+                font-size: 16px;
+                font-weight: 500;
+                margin-bottom: 10px;
+                color: #555;
+            }
+            .suggestion-box {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-bottom: 15px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<div class="suggestion-container">', unsafe_allow_html=True)
+            st.markdown('<div class="suggestion-title">💡 Câu hỏi gợi ý cho bạn:</div>', unsafe_allow_html=True)
+            
+            # Tạo câu hỏi gợi ý động
+            suggested_questions = generate_dynamic_suggested_questions(
+                api_key=openai_api_key,
+                member_id=st.session_state.current_member,
+                max_questions=5
+            )
+            
+            # Hiển thị các nút cho câu hỏi gợi ý
+            st.markdown('<div class="suggestion-box">', unsafe_allow_html=True)
+            
+            # Chia câu hỏi thành 2 dòng
+            row1, row2 = st.columns([1, 1])
+            
+            with row1:
+                for i, question in enumerate(suggested_questions[:3]):
+                    if st.button(
+                        question,
+                        key=f"suggest_q_{i}",
+                        use_container_width=True
+                    ):
+                        handle_suggested_question(question)
+            
+            with row2:
+                for i, question in enumerate(suggested_questions[3:], 3):
+                    if st.button(
+                        question,
+                        key=f"suggest_q_{i}",
+                        use_container_width=True
+                    ):
+                        handle_suggested_question(question)
+            
+            st.markdown('</div></div>', unsafe_allow_html=True)
+
+        # Thêm chức năng hình ảnh
+        with st.sidebar:
+            st.divider()
+            st.write("## 🖼️ Hình ảnh")
+            st.write("Thêm hình ảnh để hỏi trợ lý về món ăn, hoạt động gia đình...")
+
+            def add_image_to_messages():
+                if st.session_state.uploaded_img or ("camera_img" in st.session_state and st.session_state.camera_img):
+                    img_type = st.session_state.uploaded_img.type if st.session_state.uploaded_img else "image/jpeg"
+                    raw_img = Image.open(st.session_state.uploaded_img or st.session_state.camera_img)
+                    img = get_image_base64(raw_img)
+                    st.session_state.messages.append(
+                        {
+                            "role": "user", 
+                            "content": [{
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{img_type};base64,{img}"}
+                            }]
+                        }
+                    )
+                    st.rerun()
+            
+            cols_img = st.columns(2)
+            with cols_img[0]:
+                with st.popover("📁 Tải lên"):
+                    st.file_uploader(
+                        "Tải lên hình ảnh:", 
+                        type=["png", "jpg", "jpeg"],
+                        accept_multiple_files=False,
+                        key="uploaded_img",
+                        on_change=add_image_to_messages,
+                    )
+
+            with cols_img[1]:                    
+                with st.popover("📸 Camera"):
+                    activate_camera = st.checkbox("Bật camera")
+                    if activate_camera:
+                        st.camera_input(
+                            "Chụp ảnh", 
+                            key="camera_img",
+                            on_change=add_image_to_messages,
+                        )
+
+        # Chat input và các tùy chọn âm thanh
+        audio_prompt = None
+        if "prev_speech_hash" not in st.session_state:
+            st.session_state.prev_speech_hash = None
+
+        # Ghi âm
+        st.write("🎤 Bạn có thể nói:")
+        speech_input = audio_recorder("Nhấn để nói", icon_size="2x", neutral_color="#6ca395")
+        if speech_input and st.session_state.prev_speech_hash != hash(speech_input):
+            st.session_state.prev_speech_hash = hash(speech_input)
+            
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=("audio.wav", speech_input),
+            )
+
+            audio_prompt = transcript.text
+
+        # Chat input
+        if prompt := st.chat_input("Xin chào! Tôi có thể giúp gì cho gia đình bạn?") or audio_prompt:
+            st.session_state.messages.append(
+                {
+                    "role": "user", 
+                    "content": [{
+                        "type": "text",
+                        "text": prompt or audio_prompt,
+                    }]
+                }
+            )
+            
+            # Hiển thị tin nhắn mới
+            with st.chat_message("user"):
+                st.markdown(prompt or audio_prompt)
+
+            with st.chat_message("assistant"):
+                st.write_stream(stream_llm_response(
+                    api_key=openai_api_key, 
+                    system_prompt=system_prompt,
+                    current_member=st.session_state.current_member
+                ))
+
+if __name__=="__main__":
+    main()
