@@ -12,6 +12,7 @@ import random
 import hashlib
 # Thêm thư viện Tavily
 from tavily import TavilyClient
+import re
 
 dotenv.load_dotenv()
 
