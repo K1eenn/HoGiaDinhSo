@@ -10,6 +10,8 @@ import json
 import datetime
 import random
 import hashlib
+# Thêm thư viện Tavily
+from tavily import TavilyClient
 
 dotenv.load_dotenv()
 
@@ -28,6 +30,81 @@ logger = logging.getLogger('family_assistant')
 
 # Chỉ sử dụng một mô hình duy nhất
 openai_model = "gpt-4o-mini"
+
+# Các hàm mới cho Tavily API
+
+def initialize_tavily(api_key):
+    """Khởi tạo client Tavily"""
+    return TavilyClient(api_key=api_key)
+
+def tavily_search(api_key, query, search_depth="basic", max_results=5):
+    """
+    Thực hiện tìm kiếm thông tin thời gian thực sử dụng Tavily Search API
+    
+    Parameters:
+    - api_key: Tavily API key
+    - query: Câu truy vấn tìm kiếm
+    - search_depth: Độ sâu tìm kiếm ("basic" hoặc "advanced")
+    - max_results: Số lượng kết quả tối đa trả về
+    
+    Returns:
+    - Kết quả tìm kiếm dạng dict
+    """
+    try:
+        client = initialize_tavily(api_key)
+        response = client.search(
+            query=query,
+            search_depth=search_depth,
+            max_results=max_results
+        )
+        logger.info(f"Tìm kiếm thành công: {query}, số kết quả: {len(response.get('results', []))}")
+        return response
+    except Exception as e:
+        logger.error(f"Lỗi khi thực hiện tìm kiếm Tavily: {e}")
+        return {"error": str(e), "results": []}
+
+def tavily_extract(api_key, url, query=None):
+    """
+    Trích xuất thông tin từ một trang web sử dụng Tavily Extract API
+    
+    Parameters:
+    - api_key: Tavily API key
+    - url: URL của trang web cần trích xuất
+    - query: Câu hỏi cụ thể cho nội dung cần trích xuất (tùy chọn)
+    
+    Returns:
+    - Thông tin trích xuất dạng dict
+    """
+    try:
+        client = initialize_tavily(api_key)
+        response = client.extract(url=url, query=query)
+        logger.info(f"Trích xuất thành công từ URL: {url}")
+        return response
+    except Exception as e:
+        logger.error(f"Lỗi khi thực hiện trích xuất Tavily: {e}")
+        return {"error": str(e), "content": ""}
+
+def format_search_results(results):
+    """
+    Định dạng kết quả tìm kiếm để đưa vào cuộc trò chuyện
+    """
+    if "error" in results and results["error"]:
+        return f"Không thể thực hiện tìm kiếm: {results['error']}"
+    
+    if not results.get("results"):
+        return "Không tìm thấy kết quả nào phù hợp với truy vấn."
+    
+    formatted = "Kết quả tìm kiếm thời gian thực:\n\n"
+    
+    for i, result in enumerate(results.get("results", []), 1):
+        formatted += f"[{i}] {result.get('title', 'Không có tiêu đề')}\n"
+        formatted += f"Mô tả: {result.get('content', 'Không có nội dung')}\n"
+        formatted += f"Nguồn: {result.get('url', 'Không có URL')}\n"
+        if result.get('published_date'):
+            formatted += f"Thời gian: {result.get('published_date')}\n"
+        formatted += "\n"
+    
+    return formatted
 
 # Thêm hàm tạo câu hỏi gợi ý động
 def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=5):
@@ -663,6 +740,115 @@ def process_assistant_response(response, current_member=None):
     try:
         logger.info(f"Xử lý phản hồi của trợ lý, độ dài: {len(response)}")
         
+        # Xử lý lệnh tìm kiếm
+        if "##SEARCH:" in response:
+            logger.info("Tìm thấy lệnh SEARCH")
+            cmd_start = response.index("##SEARCH:") + len("##SEARCH:")
+            cmd_end = response.index("##", cmd_start)
+            search_query = response[cmd_start:cmd_end].strip()
+            
+            logger.info(f"Thực hiện tìm kiếm: {search_query}")
+            
+            try:
+                # Thực hiện tìm kiếm nếu có Tavily API key
+                if "tavily_api_key" in st.session_state and st.session_state.tavily_api_key:
+                    search_results = tavily_search(st.session_state.tavily_api_key, search_query)
+                    formatted_results = format_search_results(search_results)
+                    
+                    # Thêm kết quả tìm kiếm vào tin nhắn
+                    st.session_state.messages.append({
+                        "role": "system", 
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Kết quả tìm kiếm cho '{search_query}':\n\n{formatted_results}"
+                            }
+                        ]
+                    })
+                    
+                    logger.info(f"Đã thêm kết quả tìm kiếm vào tin nhắn")
+                else:
+                    logger.warning("Không có Tavily API key để thực hiện tìm kiếm")
+                    st.session_state.messages.append({
+                        "role": "system", 
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Không thể thực hiện tìm kiếm: Thiếu Tavily API key. Vui lòng cung cấp API key trong thanh bên."
+                            }
+                        ]
+                    })
+            except Exception as e:
+                logger.error(f"Lỗi khi thực hiện tìm kiếm: {e}")
+                st.session_state.messages.append({
+                    "role": "system", 
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Không thể thực hiện tìm kiếm: {str(e)}"
+                        }
+                    ]
+                })
+        
+        # Xử lý lệnh trích xuất
+        if "##EXTRACT:" in response:
+            logger.info("Tìm thấy lệnh EXTRACT")
+            cmd_start = response.index("##EXTRACT:") + len("##EXTRACT:")
+            cmd_end = response.index("##", cmd_start)
+            extract_params = response[cmd_start:cmd_end].strip()
+            
+            # Tách thành URL và query (nếu có)
+            parts = extract_params.split("|")
+            url = parts[0].strip()
+            query = parts[1].strip() if len(parts) > 1 else None
+            
+            logger.info(f"Thực hiện trích xuất từ URL: {url}, Query: {query}")
+            
+            try:
+                # Thực hiện trích xuất nếu có Tavily API key
+                if "tavily_api_key" in st.session_state and st.session_state.tavily_api_key:
+                    extract_results = tavily_extract(st.session_state.tavily_api_key, url, query)
+                    
+                    if "error" in extract_results and extract_results["error"]:
+                        content = f"Không thể trích xuất thông tin: {extract_results['error']}"
+                    else:
+                        content = extract_results.get("content", "Không có nội dung trích xuất")
+                    
+                    # Thêm kết quả trích xuất vào tin nhắn
+                    st.session_state.messages.append({
+                        "role": "system", 
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"Thông tin trích xuất từ {url}:\n\n{content}"
+                            }
+                        ]
+                    })
+                    
+                    logger.info(f"Đã thêm kết quả trích xuất vào tin nhắn")
+                else:
+                    logger.warning("Không có Tavily API key để thực hiện trích xuất")
+                    st.session_state.messages.append({
+                        "role": "system", 
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Không thể trích xuất thông tin: Thiếu Tavily API key. Vui lòng cung cấp API key trong thanh bên."
+                            }
+                        ]
+                    })
+            except Exception as e:
+                logger.error(f"Lỗi khi thực hiện trích xuất: {e}")
+                st.session_state.messages.append({
+                    "role": "system", 
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"Không thể trích xuất thông tin: {str(e)}"
+                        }
+                    ]
+                })
+                
         # Xử lý lệnh thêm sự kiện
         if "##ADD_EVENT:" in response:
             logger.info("Tìm thấy lệnh ADD_EVENT")
@@ -881,12 +1067,29 @@ def main():
         st.session_state.process_suggested = False
     if "question_cache" not in st.session_state:
         st.session_state.question_cache = {}
+    if "tavily_api_key" not in st.session_state:
+        st.session_state.tavily_api_key = None
 
     # --- Thanh bên ---
     with st.sidebar:
         default_openai_api_key = os.getenv("OPENAI_API_KEY") if os.getenv("OPENAI_API_KEY") is not None else ""
         with st.popover("🔐 OpenAI API Key"):
             openai_api_key = st.text_input("Nhập OpenAI API Key của bạn:", value=default_openai_api_key, type="password")
+        
+        # Thêm trường nhập Tavily API Key
+        default_tavily_api_key = os.getenv("TAVILY_API_KEY") if os.getenv("TAVILY_API_KEY") is not None else ""
+        with st.popover("🔍 Tavily API Key (Tìm kiếm thời gian thực)"):
+            tavily_api_key = st.text_input("Nhập Tavily API Key:", value=default_tavily_api_key, type="password")
+            if tavily_api_key:
+                st.session_state.tavily_api_key = tavily_api_key
+                st.success("Đã kích hoạt tìm kiếm thời gian thực!")
+        
+        # Hiển thị trạng thái tìm kiếm
+        if st.session_state.tavily_api_key:
+            st.sidebar.markdown("🟢 **Tìm kiếm thời gian thực: Đã kích hoạt**")
+        else:
+            st.sidebar.markdown("🔴 **Tìm kiếm thời gian thực: Chưa kích hoạt**")
+            st.sidebar.markdown("*Nhập Tavily API Key để kích hoạt tìm kiếm thời gian thực*")
         
         # Chọn người dùng hiện tại
         st.write("## 👤 Chọn người dùng")
@@ -1285,6 +1488,7 @@ def main():
         - 💬 Trò chuyện với trợ lý AI để cập nhật thông tin
         - 👤 Cá nhân hóa trò chuyện theo từng thành viên
         - 📜 Lưu lịch sử trò chuyện và tạo tóm tắt tự động
+        - 🔍 Tìm kiếm thông tin thời gian thực (yêu cầu Tavily API Key)
         
         Để bắt đầu, hãy nhập OpenAI API Key của bạn ở thanh bên trái.
         """)
@@ -1325,7 +1529,7 @@ def main():
         QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
         
         - Thêm thành viên: ##ADD_FAMILY_MEMBER:{{"name":"Tên","age":"Tuổi","preferences":{{"food":"Món ăn","hobby":"Sở thích","color":"Màu sắc"}}}}##
-        - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở_thích","value":"giá_trị"}}##
+        - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở thích","value":"giá_trị"}}##
         - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
         - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
         - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
@@ -1349,6 +1553,38 @@ def main():
         - Nếu người dùng gửi hình ảnh món ăn, hãy mô tả món ăn, và đề xuất cách nấu hoặc thông tin dinh dưỡng nếu phù hợp
         - Nếu là hình ảnh hoạt động gia đình, hãy mô tả hoạt động và đề xuất cách ghi nhớ khoảnh khắc đó
         - Với bất kỳ hình ảnh nào, hãy giúp người dùng liên kết nó với thành viên gia đình hoặc sự kiện nếu phù hợp
+        
+        TÌM KIẾM THỜI GIAN THỰC:
+        
+        Bạn có khả năng tìm kiếm thông tin thời gian thực thông qua Tavily API. Khi người dùng hỏi về:
+        1. Tin tức mới nhất
+        2. Thông tin sự kiện hiện tại
+        3. Dữ liệu thể thao, thời tiết, giá cả
+        4. Các thông tin thời sự khác
+        
+        Bạn PHẢI sử dụng khả năng tìm kiếm trước khi trả lời. Để thực hiện tìm kiếm, hãy sử dụng cú pháp đặc biệt sau trong phản hồi của bạn:
+        
+        ##SEARCH:từ khóa tìm kiếm##
+        
+        Ví dụ: ##SEARCH:thời tiết hà nội hôm nay##
+        
+        Sau khi nhận kết quả tìm kiếm, hãy tích hợp thông tin vào câu trả lời của bạn một cách tự nhiên. Luôn trích dẫn nguồn thông tin và ngày của thông tin.
+        
+        Để trích xuất thông tin cụ thể từ một trang web, sử dụng:
+        
+        ##EXTRACT:URL của trang web|câu hỏi cần trích xuất##
+        
+        Ví dụ: ##EXTRACT:https://example.com|thông tin về giá vàng##
+        
+        LUÔN ưu tiên sử dụng tìm kiếm khi người dùng hỏi về:
+        - Thời tiết hiện tại hoặc dự báo
+        - Kết quả thể thao (bóng đá, tennis, bóng rổ, etc.)
+        - Tin tức thời sự, chính trị, kinh tế
+        - Giá cả thị trường (chứng khoán, tiền điện tử, vàng, xăng dầu, etc.)
+        - Sự kiện đang diễn ra hoặc sắp diễn ra
+        - Các xu hướng và chủ đề mới
+        
+        QUAN TRỌNG: Đừng giả vờ đã thực hiện tìm kiếm khi chưa có kết quả. Nếu cần thông tin thời gian thực, hãy luôn sử dụng lệnh ##SEARCH:## trước.
         """
         
         # Thêm thông tin về người dùng hiện tại
