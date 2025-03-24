@@ -696,6 +696,9 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
     
     try:
         client = OpenAI(api_key=api_key)
+
+        message_placeholder = st.empty()
+        full_response = ""
         for chunk in client.chat.completions.create(
             model=openai_model,
             messages=messages,
@@ -705,6 +708,8 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
         ):
             chunk_text = chunk.choices[0].delta.content or ""
             response_message += chunk_text
+            cleaned_text = re.sub(r'##(SEARCH|EXTRACT|ADD_EVENT|UPDATE_EVENT|DELETE_EVENT|ADD_FAMILY_MEMBER|UPDATE_PREFERENCE|ADD_NOTE):.*?##', '', full_response)
+            message_placeholder.markdown(cleaned_text)
             yield chunk_text
 
         # Hiển thị phản hồi đầy đủ trong log để debug
@@ -723,6 +728,7 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
                 }
             ]})
         
+        message_placeholder.markdown(cleaned_response)
         # Nếu đang chat với một thành viên cụ thể, lưu lịch sử
         if current_member:
             # Tạo tóm tắt cuộc trò chuyện
