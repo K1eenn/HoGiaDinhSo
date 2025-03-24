@@ -709,7 +709,7 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
         ):
             chunk_text = chunk.choices[0].delta.content or ""
             response_message += chunk_text
-            cleaned_text = re.sub(r'##(SEARCH|EXTRACT|ADD_EVENT|UPDATE_EVENT|DELETE_EVENT|ADD_FAMILY_MEMBER|UPDATE_PREFERENCE|ADD_NOTE):.*?##', '', full_response)
+            display_text = re.sub(r'##(SEARCH|EXTRACT|ADD_EVENT|UPDATE_EVENT|DELETE_EVENT|ADD_FAMILY_MEMBER|UPDATE_PREFERENCE|ADD_NOTE):.*?##', '', full_response)
             message_placeholder.markdown(cleaned_text)
             yield chunk_text
 
