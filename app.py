@@ -655,7 +655,7 @@ def save_chat_history(member_id, messages, summary=None):
 # Hàm stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key, system_prompt="", current_member=None):
     """Hàm tạo và xử lý phản hồi từ mô hình AI"""
-    response_message = ""
+    full_response = ""
     
     # Tạo tin nhắn với system prompt
     messages = [{"role": "system", "content": system_prompt}]
@@ -697,9 +697,10 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
     
     try:
         client = OpenAI(api_key=api_key)
-
+        
+        # Tạo placeholder cho tin nhắn để có thể cập nhật
         message_placeholder = st.empty()
-        full_response = ""
+        
         for chunk in client.chat.completions.create(
             model=openai_model,
             messages=messages,
@@ -708,28 +709,31 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
             stream=True,
         ):
             chunk_text = chunk.choices[0].delta.content or ""
-            response_message += chunk_text
+            full_response += chunk_text
+            
+            # Hiển thị văn bản không chứa lệnh đặc biệt
             display_text = re.sub(r'##(SEARCH|EXTRACT|ADD_EVENT|UPDATE_EVENT|DELETE_EVENT|ADD_FAMILY_MEMBER|UPDATE_PREFERENCE|ADD_NOTE):.*?##', '', full_response)
             message_placeholder.markdown(display_text)
+            
             yield chunk_text
 
         # Hiển thị phản hồi đầy đủ trong log để debug
-        logger.info(f"Phản hồi đầy đủ từ trợ lý: {response_message[:200]}...")
+        logger.info(f"Phản hồi đầy đủ từ trợ lý: {full_response[:200]}...")
         
         # Xử lý phản hồi để trích xuất lệnh
-        process_assistant_response(response_message, current_member)
+        process_assistant_response(full_response, current_member)
         
-        # Thêm phản hồi vào session state
+        # Thêm phản hồi vào session state (không bao gồm lệnh đặc biệt)
+        display_text = re.sub(r'##(SEARCH|EXTRACT|ADD_EVENT|UPDATE_EVENT|DELETE_EVENT|ADD_FAMILY_MEMBER|UPDATE_PREFERENCE|ADD_NOTE):.*?##', '', full_response)
         st.session_state.messages.append({
             "role": "assistant", 
             "content": [
                 {
                     "type": "text",
-                    "text": response_message,
+                    "text": display_text,
                 }
             ]})
         
-        message_placeholder.markdown(cleaned_response)
         # Nếu đang chat với một thành viên cụ thể, lưu lịch sử
         if current_member:
             # Tạo tóm tắt cuộc trò chuyện
