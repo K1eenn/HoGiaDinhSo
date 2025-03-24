@@ -10,6 +10,8 @@ import json
 import datetime
 import random
 import hashlib
+import requests
+import time
 
 dotenv.load_dotenv()
 
@@ -17,7 +19,7 @@ dotenv.load_dotenv()
 FAMILY_DATA_FILE = "family_data.json"
 EVENTS_DATA_FILE = "events_data.json"
 NOTES_DATA_FILE = "notes_data.json"
-CHAT_HISTORY_FILE = "chat_history.json"  # Thêm file lưu trữ lịch sử chat
+CHAT_HISTORY_FILE = "chat_history.json"
 
 # Thiết lập log để debug
 import logging
@@ -28,6 +30,172 @@ logger = logging.getLogger('family_assistant')
 
 # Chỉ sử dụng một mô hình duy nhất
 openai_model = "gpt-4o-mini"
+
+# ------ TAVILY API INTEGRATION ------
+def tavily_extract(api_key, urls, include_images=False, extract_depth="basic"):
+    """
+    Trích xuất nội dung từ URL sử dụng Tavily Extract API
+    
+    Args:
+        api_key (str): Tavily API Key
+        urls (str/list): URL hoặc danh sách URL cần trích xuất
+        include_images (bool): Có bao gồm hình ảnh hay không
+        extract_depth (str): Độ sâu trích xuất ('basic' hoặc 'advanced')
+        
+    Returns:
+        dict: Kết quả trích xuất hoặc None nếu có lỗi
+    """
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "urls": urls,
+        "include_images": include_images,
+        "extract_depth": extract_depth
+    }
+    
+    try:
+        response = requests.post(
+            "https://api.tavily.com/extract",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.error(f"Lỗi Tavily Extract: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Lỗi khi gọi Tavily API: {e}")
+        return None
+
+def tavily_search(api_key, query, search_depth="advanced", max_results=3, include_domains=None, exclude_domains=None):
+    """
+    Thực hiện tìm kiếm thời gian thực sử dụng Tavily Search API
+    
+    Args:
+        api_key (str): Tavily API Key
+        query (str): Câu truy vấn tìm kiếm
+        search_depth (str): Độ sâu tìm kiếm ('basic' hoặc 'advanced')
+        max_results (int): Số lượng kết quả tối đa
+        include_domains (list): Danh sách domain muốn bao gồm
+        exclude_domains (list): Danh sách domain muốn loại trừ
+        
+    Returns:
+        dict: Kết quả tìm kiếm hoặc None nếu có lỗi
+    """
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "query": query,
+        "search_depth": search_depth,
+        "max_results": max_results
+    }
+    
+    if include_domains:
+        data["include_domains"] = include_domains
+    
+    if exclude_domains:
+        data["exclude_domains"] = exclude_domains
+    
+    try:
+        response = requests.post(
+            "https://api.tavily.com/search",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.error(f"Lỗi Tavily Search: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Lỗi khi gọi Tavily Search API: {e}")
+        return None
+
+def search_and_summarize(tavily_api_key, query, openai_api_key):
+    """
+    Tìm kiếm và tổng hợp thông tin từ kết quả tìm kiếm
+    
+    Args:
+        tavily_api_key (str): Tavily API Key
+        query (str): Câu truy vấn tìm kiếm
+        openai_api_key (str): OpenAI API Key
+        
+    Returns:
+        str: Thông tin đã được tổng hợp
+    """
+    if not tavily_api_key or not openai_api_key or not query:
+        return "Thiếu thông tin để thực hiện tìm kiếm hoặc tổng hợp."
+    
+    try:
+        # Thực hiện tìm kiếm với Tavily
+        search_results = tavily_search(tavily_api_key, query)
+        
+        if not search_results or "results" not in search_results:
+            return "Không tìm thấy kết quả nào."
+        
+        # Trích xuất thông tin từ top kết quả
+        urls_to_extract = [result["url"] for result in search_results["results"][:3]]
+        extracted_contents = []
+        
+        for url in urls_to_extract:
+            extract_result = tavily_extract(tavily_api_key, url)
+            if extract_result and "results" in extract_result and len(extract_result["results"]) > 0:
+                content = extract_result["results"][0].get("raw_content", "")
+                # Giới hạn độ dài nội dung để tránh token quá nhiều
+                if len(content) > 8000:
+                    content = content[:8000] + "..."
+                extracted_contents.append({
+                    "url": url,
+                    "content": content
+                })
+        
+        if not extracted_contents:
+            return "Không thể trích xuất nội dung từ các kết quả tìm kiếm."
+        
+        # Tổng hợp thông tin sử dụng OpenAI
+        client = OpenAI(api_key=openai_api_key)
+        
+        # Chuẩn bị prompt cho việc tổng hợp
+        prompt = f"""
+        Dưới đây là các nội dung trích xuất từ internet liên quan đến câu hỏi: "{query}"
+        
+        {json.dumps(extracted_contents, ensure_ascii=False)}
+        
+        Hãy tổng hợp thông tin từ các nguồn trên để trả lời câu hỏi một cách đầy đủ và chính xác.
+        Hãy trình bày thông tin một cách rõ ràng, có cấu trúc.
+        Nếu thông tin từ các nguồn khác nhau mâu thuẫn, hãy đề cập đến điều đó.
+        Hãy ghi rõ nguồn thông tin (URL) ở cuối mỗi phần thông tin.
+        """
+        
+        response = client.chat.completions.create(
+            model=openai_model,
+            messages=[
+                {"role": "system", "content": "Bạn là trợ lý tổng hợp thông tin. Nhiệm vụ của bạn là tổng hợp thông tin từ nhiều nguồn để cung cấp câu trả lời đầy đủ, chính xác và có cấu trúc."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1500
+        )
+        
+        summarized_info = response.choices[0].message.content
+        
+        # Thêm thông báo về nguồn
+        sources_info = "\n\n**Nguồn thông tin:**\n" + "\n".join([f"- {result['url']}" for result in search_results["results"][:3]])
+        
+        return f"{summarized_info}\n{sources_info}"
+    
+    except Exception as e:
+        logger.error(f"Lỗi trong quá trình tìm kiếm và tổng hợp: {e}")
+        return f"Có lỗi xảy ra trong quá trình tìm kiếm và tổng hợp thông tin: {str(e)}"
 
 # Thêm hàm tạo câu hỏi gợi ý động
 def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=5):
@@ -574,6 +742,55 @@ def save_chat_history(member_id, messages, summary=None):
     # Lưu vào file
     save_data(CHAT_HISTORY_FILE, chat_history)
 
+# Phát hiện câu hỏi cần search thông tin thực tế
+def detect_search_intent(query, api_key):
+    """
+    Phát hiện xem câu hỏi có cần tìm kiếm thông tin thực tế hay không
+    
+    Args:
+        query (str): Câu hỏi của người dùng
+        api_key (str): OpenAI API key
+        
+    Returns:
+        tuple: (need_search, search_query)
+    """
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=openai_model,
+            messages=[
+                {"role": "system", "content": """
+                    Bạn là một hệ thống phân loại câu hỏi thông minh. Nhiệm vụ của bạn là xác định xem câu hỏi có cần tìm kiếm thông tin thực tế, tin tức mới hoặc dữ liệu cập nhật không.
+                    
+                    Câu hỏi cần search khi:
+                    1. Liên quan đến tin tức, sự kiện hiện tại hoặc gần đây
+                    2. Yêu cầu dữ liệu thực tế, số liệu thống kê cập nhật
+                    3. Hỏi về kết quả thể thao, giải đấu
+                    4. Cần thông tin về giá cả, sản phẩm mới
+                    5. Liên quan đến thời tiết, tình hình giao thông hiện tại
+                    
+                    Câu hỏi KHÔNG cần search khi:
+                    1. Liên quan đến quản lý gia đình (thêm thành viên, sự kiện, ghi chú)
+                    2. Hỏi ý kiến, lời khuyên cá nhân
+                    3. Yêu cầu công thức nấu ăn phổ biến
+                    4. Câu hỏi đơn giản về kiến thức phổ thông
+                    5. Yêu cầu hỗ trợ sử dụng ứng dụng
+                """},
+                {"role": "user", "content": f"Câu hỏi: {query}\n\nCâu hỏi này có cần tìm kiếm thông tin thực tế không? Trả lời JSON với 2 trường: need_search (true/false) và search_query (câu truy vấn tìm kiếm tối ưu nếu cần search)."}
+            ],
+            temperature=0.1,
+            max_tokens=200,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        
+        return result.get("need_search", False), result.get("search_query", query)
+    
+    except Exception as e:
+        logger.error(f"Lỗi khi phát hiện ý định tìm kiếm: {e}")
+        return False, query
+
 # Hàm stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key, system_prompt="", current_member=None):
     """Hàm tạo và xử lý phản hồi từ mô hình AI"""
@@ -618,6 +835,44 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
             })
     
     try:
+        # Lấy tin nhắn người dùng mới nhất
+        last_user_message = ""
+        for message in reversed(st.session_state.messages):
+            if message["role"] == "user" and message["content"][0]["type"] == "text":
+                last_user_message = message["content"][0]["text"]
+                break
+        
+        # Phát hiện ý định tìm kiếm
+        need_search = False
+        search_query = ""
+        
+        if last_user_message:
+            tavily_api_key = st.session_state.get("tavily_api_key", "")
+            if tavily_api_key:
+                # Hiển thị placeholder để người dùng biết trợ lý đang tìm kiếm
+                placeholder = st.empty()
+                placeholder.info("🔍 Đang phân tích câu hỏi của bạn...")
+                
+                need_search, search_query = detect_search_intent(last_user_message, api_key)
+                
+                if need_search:
+                    placeholder.info(f"🔍 Đang tìm kiếm thông tin về: '{search_query}'...")
+                    search_result = search_and_summarize(tavily_api_key, search_query, api_key)
+                    
+                    # Thêm kết quả tìm kiếm vào hệ thống prompt
+                    search_info = f"""
+                    THÔNG TIN TÌM KIẾM:
+                    Câu hỏi: {search_query}
+                    
+                    Kết quả:
+                    {search_result}
+                    
+                    Hãy sử dụng thông tin này để trả lời câu hỏi của người dùng. Đảm bảo đề cập đến nguồn thông tin.
+                    """
+                    
+                    messages[0]["content"] = system_prompt + "\n\n" + search_info
+                    placeholder.empty()
+        
         client = OpenAI(api_key=api_key)
         for chunk in client.chat.completions.create(
             model=openai_model,
@@ -881,12 +1136,23 @@ def main():
         st.session_state.process_suggested = False
     if "question_cache" not in st.session_state:
         st.session_state.question_cache = {}
+    if "tavily_api_key" not in st.session_state:
+        st.session_state.tavily_api_key = ""
 
     # --- Thanh bên ---
     with st.sidebar:
-        default_openai_api_key = os.getenv("OPENAI_API_KEY") if os.getenv("OPENAI_API_KEY") is not None else ""
-        with st.popover("🔐 OpenAI API Key"):
-            openai_api_key = st.text_input("Nhập OpenAI API Key của bạn:", value=default_openai_api_key, type="password")
+        default_openai_api_key = os.getenv("OPENAI_API_KEY", "")
+        default_tavily_api_key = os.getenv("TAVILY_API_KEY", "")
+        
+        with st.popover("🔐 API Keys"):
+            openai_api_key = st.text_input("OpenAI API Key:", value=default_openai_api_key, type="password")
+            tavily_api_key = st.text_input("Tavily API Key:", value=default_tavily_api_key, type="password")
+            st.session_state.tavily_api_key = tavily_api_key
+            
+            if tavily_api_key:
+                st.success("✅ Tính năng tìm kiếm thời gian thực đã được kích hoạt!")
+            else:
+                st.warning("⚠️ Vui lòng nhập Tavily API Key để kích hoạt tính năng tìm kiếm thông tin thời gian thực.")
         
         # Chọn người dùng hiện tại
         st.write("## 👤 Chọn người dùng")
@@ -1247,6 +1513,25 @@ def main():
         
         st.divider()
         
+        # Phần tìm kiếm và truy vấn thông tin thực tế
+        with st.expander("🔍 Tìm kiếm thông tin"):
+            st.write("**Tìm kiếm thông tin thực tế**")
+            
+            if not tavily_api_key:
+                st.warning("⚠️ Vui lòng nhập Tavily API Key để sử dụng tính năng này.")
+            else:
+                st.info("✅ Trợ lý sẽ tự động tìm kiếm thông tin khi bạn hỏi về tin tức, thời tiết, thể thao, v.v.")
+                
+                with st.form("manual_search_form"):
+                    search_query = st.text_input("Nhập từ khóa tìm kiếm:")
+                    search_button = st.form_submit_button("🔍 Tìm kiếm")
+                    
+                    if search_button and search_query:
+                        with st.spinner("Đang tìm kiếm..."):
+                            search_result = search_and_summarize(tavily_api_key, search_query, openai_api_key)
+                            st.write("### Kết quả tìm kiếm")
+                            st.write(search_result)
+        
         # Nút làm mới câu hỏi gợi ý
         if st.button("🔄 Làm mới câu hỏi gợi ý"):
             # Xóa cache để tạo câu hỏi mới
@@ -1284,6 +1569,7 @@ def main():
         - 📝 Tạo và lưu trữ các ghi chú
         - 💬 Trò chuyện với trợ lý AI để cập nhật thông tin
         - 👤 Cá nhân hóa trò chuyện theo từng thành viên
+        - 🔍 Tìm kiếm thông tin thời gian thực với Tavily API
         - 📜 Lưu lịch sử trò chuyện và tạo tóm tắt tự động
         
         Để bắt đầu, hãy nhập OpenAI API Key của bạn ở thanh bên trái.
@@ -1310,6 +1596,10 @@ def main():
             st.info(f"👤 Đang trò chuyện với tư cách: **{member_name}**")
         elif st.session_state.current_member is None:
             st.info("👨‍👩‍👧‍👦 Đang trò chuyện trong chế độ chung")
+            
+        # Hiển thị banner thông tin về tìm kiếm
+        if tavily_api_key:
+            st.success("🔍 Trợ lý có khả năng tìm kiếm thông tin thời gian thực! Hỏi về tin tức, thể thao, thời tiết, v.v.")
         
         # System prompt cho trợ lý
         system_prompt = f"""
@@ -1321,6 +1611,7 @@ def main():
         3. Thêm, cập nhật, hoặc xóa sự kiện
         4. Thêm ghi chú
         5. Phân tích hình ảnh người dùng đưa ra (món ăn, hoạt động gia đình, v.v.)
+        6. Tìm kiếm thông tin thực tế khi được hỏi về tin tức, thời tiết, thể thao, và sự kiện hiện tại
         
         QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
         
@@ -1338,6 +1629,12 @@ def main():
         4. Sử dụng mô tả ngắn gọn từ yêu cầu của người dùng.
         5. Chỉ hỏi thông tin nếu thực sự cần thiết, tránh nhiều bước xác nhận.
         6. Sau khi thêm/cập nhật/xóa sự kiện, tóm tắt ngắn gọn hành động đã thực hiện.
+        
+        TÌM KIẾM THÔNG TIN THỜI GIAN THỰC:
+        1. Khi người dùng hỏi về tin tức, thời tiết, thể thao, sự kiện hiện tại, thông tin sản phẩm mới, hoặc bất kỳ dữ liệu cập nhật nào, hệ thống đã tự động tìm kiếm thông tin thực tế cho bạn.
+        2. Hãy sử dụng thông tin tìm kiếm này để trả lời người dùng một cách chính xác và đầy đủ.
+        3. Luôn đề cập đến nguồn thông tin khi sử dụng kết quả tìm kiếm.
+        4. Nếu không có thông tin tìm kiếm, hãy trả lời dựa trên kiến thức của bạn và lưu ý rằng thông tin có thể không cập nhật.
         
         Hôm nay là {datetime.datetime.now().strftime("%d/%m/%Y")}.
         
