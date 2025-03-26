@@ -32,7 +32,7 @@ logger = logging.getLogger('family_assistant')
 openai_model = "gpt-4o-mini"
 
 # ------ TAVILY API INTEGRATION ------
-def tavily_extract(api_key, urls, include_images=False, extract_depth="basic"):
+def tavily_extract(api_key, urls, include_images=False, extract_depth="advanced"):
     """
     Trích xuất nội dung từ URL sử dụng Tavily Extract API
     
@@ -72,7 +72,7 @@ def tavily_extract(api_key, urls, include_images=False, extract_depth="basic"):
         logger.error(f"Lỗi khi gọi Tavily API: {e}")
         return None
 
-def tavily_search(api_key, query, search_depth="advanced", max_results=3, include_domains=None, exclude_domains=None):
+def tavily_search(api_key, query, search_depth="advanced", max_results=5, include_domains=None, exclude_domains=None):
     """
     Thực hiện tìm kiếm thời gian thực sử dụng Tavily Search API
     
@@ -746,49 +746,91 @@ def save_chat_history(member_id, messages, summary=None):
 def detect_search_intent(query, api_key):
     """
     Phát hiện xem câu hỏi có cần tìm kiếm thông tin thực tế hay không
-    
+    và tinh chỉnh câu truy vấn để bao gồm các yếu tố thời gian.
+
     Args:
         query (str): Câu hỏi của người dùng
         api_key (str): OpenAI API key
-        
+
     Returns:
         tuple: (need_search, search_query)
+               need_search: True/False
+               search_query: Câu truy vấn đã được tinh chỉnh (có thể bao gồm yếu tố thời gian)
     """
     try:
         client = OpenAI(api_key=api_key)
+        current_date_str = datetime.datetime.now().strftime("%Y-%m-%d") # Lấy ngày hiện tại
+
+        system_prompt = f"""
+Bạn là một hệ thống phân loại và tinh chỉnh câu hỏi thông minh. Nhiệm vụ của bạn là:
+1. Xác định xem câu hỏi có cần tìm kiếm thông tin thực tế, tin tức mới hoặc dữ liệu cập nhật không.
+2. Nếu cần tìm kiếm, hãy tinh chỉnh câu hỏi thành một truy vấn tìm kiếm tối ưu cho search engine. ĐẶC BIỆT CHÚ Ý đến các yếu tố thời gian (ví dụ: hôm nay, hôm qua, tuần này, tháng trước, năm 2023, tối qua, sáng nay...).
+3. Hãy kết hợp các yếu tố thời gian này vào `search_query` để kết quả tìm kiếm được chính xác hơn về mặt thời gian.
+
+Hôm nay là ngày: {current_date_str}.
+
+Câu hỏi cần search khi:
+- Liên quan đến tin tức, sự kiện hiện tại hoặc gần đây (ví dụ: "tin tức hôm nay", "kết quả bóng đá tối qua").
+- Yêu cầu dữ liệu thực tế, số liệu thống kê cập nhật (ví dụ: "giá vàng tuần này").
+- Hỏi về kết quả thể thao, giải đấu đang diễn ra hoặc vừa kết thúc.
+- Cần thông tin về giá cả, sản phẩm mới ra mắt.
+- Liên quan đến thời tiết, tình hình giao thông hiện tại.
+
+Câu hỏi KHÔNG cần search khi:
+- Liên quan đến quản lý gia đình trong ứng dụng này (thêm thành viên, sự kiện, ghi chú).
+- Hỏi ý kiến, lời khuyên cá nhân không dựa trên dữ liệu thực tế.
+- Yêu cầu công thức nấu ăn phổ biến, kiến thức phổ thông không thay đổi nhanh.
+- Yêu cầu hỗ trợ sử dụng ứng dụng.
+
+Ví dụ tinh chỉnh truy vấn:
+- User: "tin tức covid hôm nay" -> search_query: "tin tức covid mới nhất ngày {current_date_str}" hoặc "tin tức covid hôm nay"
+- User: "kết quả trận MU tối qua" -> search_query: "kết quả trận MU tối qua" hoặc "kết quả Manchester United ngày [ngày hôm qua]"
+- User: "có phim gì hay tuần này?" -> search_query: "phim chiếu rạp hay tuần này"
+- User: "giá bitcoin" -> search_query: "giá bitcoin mới nhất"
+- User: "thủ đô nước Pháp là gì?" -> need_search: false (kiến thức phổ thông)
+
+Trả lời DƯỚI DẠNG JSON với 2 trường:
+- need_search (boolean: true hoặc false)
+- search_query (string: câu truy vấn tìm kiếm đã được tối ưu, bao gồm cả yếu tố thời gian nếu có và cần thiết). Nếu need_search là false, trường này có thể là chuỗi rỗng hoặc câu truy vấn gốc.
+"""
+
         response = client.chat.completions.create(
-            model=openai_model,
+            model=openai_model, # Đảm bảo sử dụng model hỗ trợ JSON mode tốt
             messages=[
-                {"role": "system", "content": """
-                    Bạn là một hệ thống phân loại câu hỏi thông minh. Nhiệm vụ của bạn là xác định xem câu hỏi có cần tìm kiếm thông tin thực tế, tin tức mới hoặc dữ liệu cập nhật không.
-                    
-                    Câu hỏi cần search khi:
-                    1. Liên quan đến tin tức, sự kiện hiện tại hoặc gần đây
-                    2. Yêu cầu dữ liệu thực tế, số liệu thống kê cập nhật
-                    3. Hỏi về kết quả thể thao, giải đấu
-                    4. Cần thông tin về giá cả, sản phẩm mới
-                    5. Liên quan đến thời tiết, tình hình giao thông hiện tại
-                    
-                    Câu hỏi KHÔNG cần search khi:
-                    1. Liên quan đến quản lý gia đình (thêm thành viên, sự kiện, ghi chú)
-                    2. Hỏi ý kiến, lời khuyên cá nhân
-                    3. Yêu cầu công thức nấu ăn phổ biến
-                    4. Câu hỏi đơn giản về kiến thức phổ thông
-                    5. Yêu cầu hỗ trợ sử dụng ứng dụng
-                """},
-                {"role": "user", "content": f"Câu hỏi: {query}\n\nCâu hỏi này có cần tìm kiếm thông tin thực tế không? Trả lời JSON với 2 trường: need_search (true/false) và search_query (câu truy vấn tìm kiếm tối ưu nếu cần search)."}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Câu hỏi của người dùng: \"{query}\"\n\nHãy phân tích và trả về JSON theo yêu cầu."}
             ],
             temperature=0.1,
-            max_tokens=200,
+            max_tokens=250, # Tăng nhẹ để đủ chỗ cho prompt và JSON
             response_format={"type": "json_object"}
         )
-        
-        result = json.loads(response.choices[0].message.content)
-        
-        return result.get("need_search", False), result.get("search_query", query)
-    
+
+        result_str = response.choices[0].message.content
+        logger.info(f"Kết quả detect_search_intent (raw): {result_str}") # Log kết quả thô
+
+        try:
+            result = json.loads(result_str)
+            need_search = result.get("need_search", False)
+            # Nếu cần search mà search_query rỗng, dùng query gốc
+            search_query = result.get("search_query", query) if need_search else query
+            if need_search and not search_query:
+                 search_query = query # Đảm bảo có query nếu cần search
+
+            logger.info(f"Phân tích truy vấn: need_search={need_search}, search_query='{search_query}'")
+            return need_search, search_query
+
+        except json.JSONDecodeError as json_err:
+            logger.error(f"Lỗi giải mã JSON từ detect_search_intent: {json_err}")
+            logger.error(f"Chuỗi JSON không hợp lệ: {result_str}")
+            # Fallback: Mặc định không search nếu không parse được JSON
+            return False, query
+        except Exception as e:
+            logger.error(f"Lỗi không xác định trong detect_search_intent: {e}")
+            return False, query # Fallback
+
     except Exception as e:
-        logger.error(f"Lỗi khi phát hiện ý định tìm kiếm: {e}")
+        logger.error(f"Lỗi khi gọi OpenAI trong detect_search_intent: {e}")
+        # Fallback: Nếu có lỗi API, giả sử không cần search
         return False, query
 
 # Hàm stream phản hồi từ GPT-4o-mini
