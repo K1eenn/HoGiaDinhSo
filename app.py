@@ -120,15 +120,14 @@ def tavily_search(api_key, query, search_depth="advanced", max_results=3, includ
         logger.error(f"Lỗi khi gọi Tavily Search API: {e}")
         return None
 
-def search_and_summarize(tavily_api_key, query, openai_api_key, time_info=""):
+def search_and_summarize(tavily_api_key, query, openai_api_key):
     """
-    Tìm kiếm và tổng hợp thông tin từ kết quả tìm kiếm, đảm bảo tập trung vào thời gian cụ thể
+    Tìm kiếm và tổng hợp thông tin từ kết quả tìm kiếm
     
     Args:
         tavily_api_key (str): Tavily API Key
         query (str): Câu truy vấn tìm kiếm
         openai_api_key (str): OpenAI API Key
-        time_info (str): Thông tin thời gian cụ thể từ câu hỏi
         
     Returns:
         str: Thông tin đã được tổng hợp
@@ -137,17 +136,8 @@ def search_and_summarize(tavily_api_key, query, openai_api_key, time_info=""):
         return "Thiếu thông tin để thực hiện tìm kiếm hoặc tổng hợp."
     
     try:
-        # Điều chỉnh query để tập trung vào thời gian cụ thể
-        search_query = query
-        if time_info:
-            # Thêm thông tin thời gian vào truy vấn nếu chưa có
-            if time_info.lower() not in query.lower():
-                search_query = f"{query} {time_info}"
-            
-            logger.info(f"Đã điều chỉnh truy vấn tìm kiếm với thông tin thời gian: '{search_query}'")
-        
         # Thực hiện tìm kiếm với Tavily
-        search_results = tavily_search(tavily_api_key, search_query)
+        search_results = tavily_search(tavily_api_key, query)
         
         if not search_results or "results" not in search_results:
             return "Không tìm thấy kết quả nào."
@@ -174,34 +164,22 @@ def search_and_summarize(tavily_api_key, query, openai_api_key, time_info=""):
         # Tổng hợp thông tin sử dụng OpenAI
         client = OpenAI(api_key=openai_api_key)
         
-        # Chuẩn bị prompt cho việc tổng hợp, nhấn mạnh yêu cầu về thời gian
-        time_instruction = ""
-        if time_info:
-            time_instruction = f"""
-            QUAN TRỌNG: Người dùng đang tìm kiếm thông tin liên quan đến "{time_info}". 
-            Hãy tập trung vào tin tức và sự kiện xảy ra trong khoảng thời gian này.
-            Nếu không tìm thấy thông tin phù hợp với thời gian này, hãy nói rõ rằng không có thông tin cho thời điểm cụ thể này.
-            """
-        
+        # Chuẩn bị prompt cho việc tổng hợp
         prompt = f"""
         Dưới đây là các nội dung trích xuất từ internet liên quan đến câu hỏi: "{query}"
         
         {json.dumps(extracted_contents, ensure_ascii=False)}
         
-        {time_instruction}
-        
         Hãy tổng hợp thông tin từ các nguồn trên để trả lời câu hỏi một cách đầy đủ và chính xác.
         Hãy trình bày thông tin một cách rõ ràng, có cấu trúc.
         Nếu thông tin từ các nguồn khác nhau mâu thuẫn, hãy đề cập đến điều đó.
         Hãy ghi rõ nguồn thông tin (URL) ở cuối mỗi phần thông tin.
-        
-        Nếu có thông tin về ngày đăng hoặc thời gian của tin tức, hãy ghi rõ để người dùng biết thông tin là mới nhất.
         """
         
         response = client.chat.completions.create(
             model=openai_model,
             messages=[
-                {"role": "system", "content": "Bạn là trợ lý tổng hợp thông tin. Nhiệm vụ của bạn là tổng hợp thông tin từ nhiều nguồn để cung cấp câu trả lời đầy đủ, chính xác và có cấu trúc. Bạn cần đảm bảo rằng thông tin phù hợp với thời gian mà người dùng yêu cầu."},
+                {"role": "system", "content": "Bạn là trợ lý tổng hợp thông tin. Nhiệm vụ của bạn là tổng hợp thông tin từ nhiều nguồn để cung cấp câu trả lời đầy đủ, chính xác và có cấu trúc."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
@@ -767,14 +745,14 @@ def save_chat_history(member_id, messages, summary=None):
 # Phát hiện câu hỏi cần search thông tin thực tế
 def detect_search_intent(query, api_key):
     """
-    Phát hiện xem câu hỏi có cần tìm kiếm thông tin thực tế hay không, và trích xuất thông tin thời gian
+    Phát hiện xem câu hỏi có cần tìm kiếm thông tin thực tế hay không
     
     Args:
         query (str): Câu hỏi của người dùng
         api_key (str): OpenAI API key
         
     Returns:
-        tuple: (need_search, search_query, time_info)
+        tuple: (need_search, search_query)
     """
     try:
         client = OpenAI(api_key=api_key)
@@ -797,11 +775,8 @@ def detect_search_intent(query, api_key):
                     3. Yêu cầu công thức nấu ăn phổ biến
                     4. Câu hỏi đơn giản về kiến thức phổ thông
                     5. Yêu cầu hỗ trợ sử dụng ứng dụng
-                    
-                    QUAN TRỌNG: Nếu câu hỏi đề cập đến một thời điểm cụ thể (hôm nay, ngày mai, hôm qua, ngày 12/05, tuần trước, tuần này, tháng này, v.v.), 
-                    hãy phân tích và trích xuất thông tin thời gian này để sử dụng trong truy vấn tìm kiếm.
                 """},
-                {"role": "user", "content": f"Câu hỏi: {query}\n\nCâu hỏi này có cần tìm kiếm thông tin thực tế không? Trả lời JSON với 3 trường: need_search (true/false), search_query (câu truy vấn tìm kiếm tối ưu nếu cần search), và time_info (thông tin về thời gian cụ thể được đề cập trong câu hỏi, để trống nếu không có)."}
+                {"role": "user", "content": f"Câu hỏi: {query}\n\nCâu hỏi này có cần tìm kiếm thông tin thực tế không? Trả lời JSON với 2 trường: need_search (true/false) và search_query (câu truy vấn tìm kiếm tối ưu nếu cần search)."}
             ],
             temperature=0.1,
             max_tokens=200,
@@ -810,11 +785,11 @@ def detect_search_intent(query, api_key):
         
         result = json.loads(response.choices[0].message.content)
         
-        return result.get("need_search", False), result.get("search_query", query), result.get("time_info", "")
+        return result.get("need_search", False), result.get("search_query", query)
     
     except Exception as e:
         logger.error(f"Lỗi khi phát hiện ý định tìm kiếm: {e}")
-        return False, query, ""
+        return False, query
 
 # Hàm stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key, system_prompt="", current_member=None):
@@ -870,8 +845,7 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
         # Phát hiện ý định tìm kiếm
         need_search = False
         search_query = ""
-        time_info = ""
-
+        
         if last_user_message:
             tavily_api_key = st.session_state.get("tavily_api_key", "")
             if tavily_api_key:
@@ -879,20 +853,15 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
                 placeholder = st.empty()
                 placeholder.info("🔍 Đang phân tích câu hỏi của bạn...")
                 
-                need_search, search_query, time_info = detect_search_intent(last_user_message, api_key)
+                need_search, search_query = detect_search_intent(last_user_message, api_key)
                 
                 if need_search:
-                    search_message = f"🔍 Đang tìm kiếm thông tin về: '{search_query}'"
-                    if time_info:
-                        search_message += f" ({time_info})"
-                    placeholder.info(search_message)
-                    
-                    search_result = search_and_summarize(tavily_api_key, search_query, api_key, time_info)
+                    placeholder.info(f"🔍 Đang tìm kiếm thông tin về: '{search_query}'...")
+                    search_result = search_and_summarize(tavily_api_key, search_query, api_key)
                     
                     # Thêm kết quả tìm kiếm vào hệ thống prompt
-                    time_context = f" cho '{time_info}'" if time_info else ""
                     search_info = f"""
-                    THÔNG TIN TÌM KIẾM{time_context}:
+                    THÔNG TIN TÌM KIẾM:
                     Câu hỏi: {search_query}
                     
                     Kết quả:
