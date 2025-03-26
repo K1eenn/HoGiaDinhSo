@@ -12,6 +12,7 @@ import random
 import hashlib
 import requests
 import time
+import re
 
 dotenv.load_dotenv()
 
@@ -32,7 +33,7 @@ logger = logging.getLogger('family_assistant')
 openai_model = "gpt-4o-mini"
 
 # ------ TAVILY API INTEGRATION ------
-def tavily_extract(api_key, urls, include_images=False, extract_depth="advanced"):
+def tavily_extract(api_key, urls, include_images=False, extract_depth="basic"):
     """
     Trích xuất nội dung từ URL sử dụng Tavily Extract API
     
@@ -72,7 +73,67 @@ def tavily_extract(api_key, urls, include_images=False, extract_depth="advanced"
         logger.error(f"Lỗi khi gọi Tavily API: {e}")
         return None
 
-def tavily_search(api_key, query, search_depth="advanced", max_results=5, include_domains=None, exclude_domains=None):
+def extract_time_info(query):
+    """
+    Trích xuất thông tin thời gian từ câu truy vấn
+    
+    Args:
+        query (str): Câu truy vấn gốc
+        
+    Returns:
+        tuple: (query_without_time, time_info, time_filter)
+            - query_without_time: Câu truy vấn không có phần thời gian
+            - time_info: Thông tin thời gian dạng chuỗi để thêm vào câu truy vấn
+            - time_filter: Tham số lọc thời gian cho API (số ngày)
+    """
+    today = datetime.datetime.now().date()
+    yesterday = today - datetime.timedelta(days=1)
+    
+    time_keywords = {
+        'hôm nay': {'text': f'ngày {today.strftime("%d/%m/%Y")}', 'days': 0},
+        'ngày hôm nay': {'text': f'ngày {today.strftime("%d/%m/%Y")}', 'days': 0},
+        'ngày này': {'text': f'ngày {today.strftime("%d/%m/%Y")}', 'days': 0},
+        'hôm qua': {'text': f'ngày {yesterday.strftime("%d/%m/%Y")}', 'days': 1},
+        'ngày hôm qua': {'text': f'ngày {yesterday.strftime("%d/%m/%Y")}', 'days': 1},
+        'tuần này': {'text': f'tuần này (từ {(today - datetime.timedelta(days=today.weekday())).strftime("%d/%m/%Y")})', 'days': 7},
+        'tuần trước': {'text': 'tuần trước', 'days': 14},
+        'tháng này': {'text': f'tháng {today.strftime("%m/%Y")}', 'days': 30},
+        'năm nay': {'text': f'năm {today.strftime("%Y")}', 'days': 365},
+        'gần đây': {'text': 'gần đây', 'days': 7},
+        'mới nhất': {'text': 'mới nhất', 'days': 3},
+        'mới đây': {'text': 'mới đây', 'days': 3}
+    }
+    
+    query_lower = query.lower()
+    
+    # Tìm các từ khóa thời gian trong câu truy vấn
+    found_time_info = None
+    time_keyword_found = None
+    
+    for keyword, info in time_keywords.items():
+        if keyword in query_lower:
+            found_time_info = info
+            time_keyword_found = keyword
+            break
+    
+    if not found_time_info:
+        # Không tìm thấy thông tin thời gian
+        return query, "", None
+    
+    # Loại bỏ từ khóa thời gian khỏi câu truy vấn nếu cần
+    # Chỉ loại bỏ nếu từ khóa là một cụm từ riêng biệt
+    query_without_time = query
+    
+    # Tạo regex tìm từ khóa thời gian là một từ hoặc cụm từ riêng biệt
+    pattern = r'\b' + re.escape(time_keyword_found) + r'\b'
+    
+    # Thay thế từ khóa thời gian bằng chuỗi rỗng và loại bỏ khoảng trắng thừa
+    query_without_time = re.sub(pattern, '', query)
+    query_without_time = ' '.join(query_without_time.split())
+    
+    return query_without_time, found_time_info['text'], found_time_info['days']
+
+def tavily_search(api_key, query, search_depth="advanced", max_results=3, include_domains=None, exclude_domains=None, time_filter=None):
     """
     Thực hiện tìm kiếm thời gian thực sử dụng Tavily Search API
     
@@ -83,6 +144,7 @@ def tavily_search(api_key, query, search_depth="advanced", max_results=5, includ
         max_results (int): Số lượng kết quả tối đa
         include_domains (list): Danh sách domain muốn bao gồm
         exclude_domains (list): Danh sách domain muốn loại trừ
+        time_filter (int): Số ngày giới hạn cho kết quả tìm kiếm (None = không giới hạn)
         
     Returns:
         dict: Kết quả tìm kiếm hoặc None nếu có lỗi
@@ -98,6 +160,12 @@ def tavily_search(api_key, query, search_depth="advanced", max_results=5, includ
         "max_results": max_results
     }
     
+    # Thêm tham số time_filter nếu có
+    if time_filter is not None:
+        # Nếu API Tavily có hỗ trợ tham số thời gian, thì thêm ở đây
+        # Hiện tại ta sẽ điều chỉnh query để bao gồm thông tin thời gian
+        pass
+    
     if include_domains:
         data["include_domains"] = include_domains
     
@@ -112,15 +180,23 @@ def tavily_search(api_key, query, search_depth="advanced", max_results=5, includ
         )
         
         if response.status_code == 200:
-            return response.json()
+            result = response.json()
+            
+            # Nếu có time_filter, lọc thêm kết quả theo thời gian
+            if time_filter is not None and 'results' in result:
+                # Tavily API thường đã trả về kết quả theo thứ tự thời gian mới nhất
+                # Nếu cần, có thể thêm logic lọc thêm ở đây
+                pass
+                
+            return result
         else:
             logger.error(f"Lỗi Tavily Search: {response.status_code} - {response.text}")
             return None
     except Exception as e:
-        logger.error(f"Lỗi khi gọi Tavily Search API: {e}")
+        logger.error(f"Lỗi khi gọi Tavily API: {e}")
         return None
 
-def search_and_summarize(tavily_api_key, query, openai_api_key):
+def search_and_summarize(tavily_api_key, query, openai_api_key, time_filter=None):
     """
     Tìm kiếm và tổng hợp thông tin từ kết quả tìm kiếm
     
@@ -128,6 +204,7 @@ def search_and_summarize(tavily_api_key, query, openai_api_key):
         tavily_api_key (str): Tavily API Key
         query (str): Câu truy vấn tìm kiếm
         openai_api_key (str): OpenAI API Key
+        time_filter (int): Số ngày giới hạn cho kết quả tìm kiếm
         
     Returns:
         str: Thông tin đã được tổng hợp
@@ -136,8 +213,8 @@ def search_and_summarize(tavily_api_key, query, openai_api_key):
         return "Thiếu thông tin để thực hiện tìm kiếm hoặc tổng hợp."
     
     try:
-        # Thực hiện tìm kiếm với Tavily
-        search_results = tavily_search(tavily_api_key, query)
+        # Thực hiện tìm kiếm với Tavily, thêm tham số time_filter
+        search_results = tavily_search(tavily_api_key, query, time_filter=time_filter)
         
         if not search_results or "results" not in search_results:
             return "Không tìm thấy kết quả nào."
@@ -164,6 +241,20 @@ def search_and_summarize(tavily_api_key, query, openai_api_key):
         # Tổng hợp thông tin sử dụng OpenAI
         client = OpenAI(api_key=openai_api_key)
         
+        # Thêm thông tin thời gian vào prompt nếu có
+        time_info = ""
+        if time_filter is not None:
+            if time_filter == 0:
+                time_info = "chỉ trong ngày hôm nay"
+            elif time_filter == 1:
+                time_info = "từ hôm qua đến nay"
+            elif time_filter <= 7:
+                time_info = f"trong {time_filter} ngày gần đây"
+            elif time_filter <= 30:
+                time_info = "trong tháng gần đây"
+            else:
+                time_info = f"trong khoảng {time_filter} ngày gần đây"
+        
         # Chuẩn bị prompt cho việc tổng hợp
         prompt = f"""
         Dưới đây là các nội dung trích xuất từ internet liên quan đến câu hỏi: "{query}"
@@ -171,6 +262,7 @@ def search_and_summarize(tavily_api_key, query, openai_api_key):
         {json.dumps(extracted_contents, ensure_ascii=False)}
         
         Hãy tổng hợp thông tin từ các nguồn trên để trả lời câu hỏi một cách đầy đủ và chính xác.
+        {"Hãy tập trung vào thông tin " + time_info + "." if time_info else ""}
         Hãy trình bày thông tin một cách rõ ràng, có cấu trúc.
         Nếu thông tin từ các nguồn khác nhau mâu thuẫn, hãy đề cập đến điều đó.
         Hãy ghi rõ nguồn thông tin (URL) ở cuối mỗi phần thông tin.
@@ -196,6 +288,64 @@ def search_and_summarize(tavily_api_key, query, openai_api_key):
     except Exception as e:
         logger.error(f"Lỗi trong quá trình tìm kiếm và tổng hợp: {e}")
         return f"Có lỗi xảy ra trong quá trình tìm kiếm và tổng hợp thông tin: {str(e)}"
+
+def detect_search_intent(query, api_key):
+    """
+    Phát hiện xem câu hỏi có cần tìm kiếm thông tin thực tế hay không
+    và trích xuất thông tin thời gian
+    
+    Args:
+        query (str): Câu hỏi của người dùng
+        api_key (str): OpenAI API key
+        
+    Returns:
+        tuple: (need_search, search_query, time_filter)
+    """
+    try:
+        # Trích xuất thông tin thời gian từ câu truy vấn
+        query_without_time, time_info, time_filter = extract_time_info(query)
+        
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=openai_model,
+            messages=[
+                {"role": "system", "content": """
+                    Bạn là một hệ thống phân loại câu hỏi thông minh. Nhiệm vụ của bạn là xác định xem câu hỏi có cần tìm kiếm thông tin thực tế, tin tức mới hoặc dữ liệu cập nhật không.
+                    
+                    Câu hỏi cần search khi:
+                    1. Liên quan đến tin tức, sự kiện hiện tại hoặc gần đây
+                    2. Yêu cầu dữ liệu thực tế, số liệu thống kê cập nhật
+                    3. Hỏi về kết quả thể thao, giải đấu
+                    4. Cần thông tin về giá cả, sản phẩm mới
+                    5. Liên quan đến thời tiết, tình hình giao thông hiện tại
+                    
+                    Câu hỏi KHÔNG cần search khi:
+                    1. Liên quan đến quản lý gia đình (thêm thành viên, sự kiện, ghi chú)
+                    2. Hỏi ý kiến, lời khuyên cá nhân
+                    3. Yêu cầu công thức nấu ăn phổ biến
+                    4. Câu hỏi đơn giản về kiến thức phổ thông
+                    5. Yêu cầu hỗ trợ sử dụng ứng dụng
+                """},
+                {"role": "user", "content": f"Câu hỏi: {query_without_time}\n\nCâu hỏi này có cần tìm kiếm thông tin thực tế không? Trả lời JSON với 2 trường: need_search (true/false) và search_query (câu truy vấn tìm kiếm tối ưu nếu cần search)."}
+            ],
+            temperature=0.1,
+            max_tokens=200,
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        need_search = result.get("need_search", False)
+        search_query = result.get("search_query", query_without_time)
+        
+        # Nếu cần tìm kiếm và có thông tin thời gian, thêm thông tin thời gian vào câu truy vấn
+        if need_search and time_info:
+            search_query = f"{search_query} {time_info}"
+            
+        return need_search, search_query, time_filter
+    
+    except Exception as e:
+        logger.error(f"Lỗi khi phát hiện ý định tìm kiếm: {e}")
+        return False, query, None
 
 # Thêm hàm tạo câu hỏi gợi ý động
 def generate_dynamic_suggested_questions(api_key, member_id=None, max_questions=5):
@@ -742,97 +892,6 @@ def save_chat_history(member_id, messages, summary=None):
     # Lưu vào file
     save_data(CHAT_HISTORY_FILE, chat_history)
 
-# Phát hiện câu hỏi cần search thông tin thực tế
-def detect_search_intent(query, api_key):
-    """
-    Phát hiện xem câu hỏi có cần tìm kiếm thông tin thực tế hay không
-    và tinh chỉnh câu truy vấn để bao gồm các yếu tố thời gian.
-
-    Args:
-        query (str): Câu hỏi của người dùng
-        api_key (str): OpenAI API key
-
-    Returns:
-        tuple: (need_search, search_query)
-               need_search: True/False
-               search_query: Câu truy vấn đã được tinh chỉnh (có thể bao gồm yếu tố thời gian)
-    """
-    try:
-        client = OpenAI(api_key=api_key)
-        current_date_str = datetime.datetime.now().strftime("%Y-%m-%d") # Lấy ngày hiện tại
-
-        system_prompt = f"""
-Bạn là một hệ thống phân loại và tinh chỉnh câu hỏi thông minh. Nhiệm vụ của bạn là:
-1. Xác định xem câu hỏi có cần tìm kiếm thông tin thực tế, tin tức mới hoặc dữ liệu cập nhật không.
-2. Nếu cần tìm kiếm, hãy tinh chỉnh câu hỏi thành một truy vấn tìm kiếm tối ưu cho search engine. ĐẶC BIỆT CHÚ Ý đến các yếu tố thời gian (ví dụ: hôm nay, hôm qua, tuần này, tháng trước, năm 2023, tối qua, sáng nay...).
-3. Hãy kết hợp các yếu tố thời gian này vào `search_query` để kết quả tìm kiếm được chính xác hơn về mặt thời gian.
-
-Hôm nay là ngày: {current_date_str}.
-
-Câu hỏi cần search khi:
-- Liên quan đến tin tức, sự kiện hiện tại hoặc gần đây (ví dụ: "tin tức hôm nay", "kết quả bóng đá tối qua").
-- Yêu cầu dữ liệu thực tế, số liệu thống kê cập nhật (ví dụ: "giá vàng tuần này").
-- Hỏi về kết quả thể thao, giải đấu đang diễn ra hoặc vừa kết thúc.
-- Cần thông tin về giá cả, sản phẩm mới ra mắt.
-- Liên quan đến thời tiết, tình hình giao thông hiện tại.
-
-Câu hỏi KHÔNG cần search khi:
-- Liên quan đến quản lý gia đình trong ứng dụng này (thêm thành viên, sự kiện, ghi chú).
-- Hỏi ý kiến, lời khuyên cá nhân không dựa trên dữ liệu thực tế.
-- Yêu cầu công thức nấu ăn phổ biến, kiến thức phổ thông không thay đổi nhanh.
-- Yêu cầu hỗ trợ sử dụng ứng dụng.
-
-Ví dụ tinh chỉnh truy vấn:
-- User: "tin tức covid hôm nay" -> search_query: "tin tức covid mới nhất ngày {current_date_str}" hoặc "tin tức covid hôm nay"
-- User: "kết quả trận MU tối qua" -> search_query: "kết quả trận MU tối qua" hoặc "kết quả Manchester United ngày [ngày hôm qua]"
-- User: "có phim gì hay tuần này?" -> search_query: "phim chiếu rạp hay tuần này"
-- User: "giá bitcoin" -> search_query: "giá bitcoin mới nhất"
-- User: "thủ đô nước Pháp là gì?" -> need_search: false (kiến thức phổ thông)
-
-Trả lời DƯỚI DẠNG JSON với 2 trường:
-- need_search (boolean: true hoặc false)
-- search_query (string: câu truy vấn tìm kiếm đã được tối ưu, bao gồm cả yếu tố thời gian nếu có và cần thiết). Nếu need_search là false, trường này có thể là chuỗi rỗng hoặc câu truy vấn gốc.
-"""
-
-        response = client.chat.completions.create(
-            model=openai_model, # Đảm bảo sử dụng model hỗ trợ JSON mode tốt
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Câu hỏi của người dùng: \"{query}\"\n\nHãy phân tích và trả về JSON theo yêu cầu."}
-            ],
-            temperature=0.1,
-            max_tokens=250, # Tăng nhẹ để đủ chỗ cho prompt và JSON
-            response_format={"type": "json_object"}
-        )
-
-        result_str = response.choices[0].message.content
-        logger.info(f"Kết quả detect_search_intent (raw): {result_str}") # Log kết quả thô
-
-        try:
-            result = json.loads(result_str)
-            need_search = result.get("need_search", False)
-            # Nếu cần search mà search_query rỗng, dùng query gốc
-            search_query = result.get("search_query", query) if need_search else query
-            if need_search and not search_query:
-                 search_query = query # Đảm bảo có query nếu cần search
-
-            logger.info(f"Phân tích truy vấn: need_search={need_search}, search_query='{search_query}'")
-            return need_search, search_query
-
-        except json.JSONDecodeError as json_err:
-            logger.error(f"Lỗi giải mã JSON từ detect_search_intent: {json_err}")
-            logger.error(f"Chuỗi JSON không hợp lệ: {result_str}")
-            # Fallback: Mặc định không search nếu không parse được JSON
-            return False, query
-        except Exception as e:
-            logger.error(f"Lỗi không xác định trong detect_search_intent: {e}")
-            return False, query # Fallback
-
-    except Exception as e:
-        logger.error(f"Lỗi khi gọi OpenAI trong detect_search_intent: {e}")
-        # Fallback: Nếu có lỗi API, giả sử không cần search
-        return False, query
-
 # Hàm stream phản hồi từ GPT-4o-mini
 def stream_llm_response(api_key, system_prompt="", current_member=None):
     """Hàm tạo và xử lý phản hồi từ mô hình AI"""
@@ -887,6 +946,7 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
         # Phát hiện ý định tìm kiếm
         need_search = False
         search_query = ""
+        time_filter = None
         
         if last_user_message:
             tavily_api_key = st.session_state.get("tavily_api_key", "")
@@ -895,11 +955,11 @@ def stream_llm_response(api_key, system_prompt="", current_member=None):
                 placeholder = st.empty()
                 placeholder.info("🔍 Đang phân tích câu hỏi của bạn...")
                 
-                need_search, search_query = detect_search_intent(last_user_message, api_key)
+                need_search, search_query, time_filter = detect_search_intent(last_user_message, api_key)
                 
                 if need_search:
                     placeholder.info(f"🔍 Đang tìm kiếm thông tin về: '{search_query}'...")
-                    search_result = search_and_summarize(tavily_api_key, search_query, api_key)
+                    search_result = search_and_summarize(tavily_api_key, search_query, api_key, time_filter)
                     
                     # Thêm kết quả tìm kiếm vào hệ thống prompt
                     search_info = f"""
@@ -1569,8 +1629,18 @@ def main():
                     search_button = st.form_submit_button("🔍 Tìm kiếm")
                     
                     if search_button and search_query:
+                        # Phát hiện thông tin thời gian nếu có
+                        query_without_time, time_info, time_filter = extract_time_info(search_query)
+                        final_query = search_query
+                        
+                        if time_info:
+                            st.info(f"Đang tìm kiếm thông tin về: '{query_without_time}' {time_info}")
+                            final_query = f"{query_without_time} {time_info}"
+                        else:
+                            st.info(f"Đang tìm kiếm thông tin về: '{search_query}'")
+                        
                         with st.spinner("Đang tìm kiếm..."):
-                            search_result = search_and_summarize(tavily_api_key, search_query, openai_api_key)
+                            search_result = search_and_summarize(tavily_api_key, final_query, openai_api_key, time_filter)
                             st.write("### Kết quả tìm kiếm")
                             st.write(search_result)
         
@@ -1745,6 +1815,319 @@ def main():
                     system_prompt=system_prompt,
                     current_member=st.session_state.current_member
                 ))
+
+if __name__=="__main__":
+    main()
+            
+            # Rerun để cập nhật giao diện và tránh xử lý trùng lặp
+            st.rerun()
+        
+        # Hiển thị câu hỏi gợi ý
+        if openai_api_key:
+            # Container cho câu hỏi gợi ý với CSS tùy chỉnh
+            st.markdown("""
+            <style>
+            .suggestion-container {
+                margin-top: 20px;
+                margin-bottom: 20px;
+            }
+            .suggestion-title {
+                font-size: 16px;
+                font-weight: 500;
+                margin-bottom: 10px;
+                color: #555;
+            }
+            .suggestion-box {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin-bottom: 15px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<div class="suggestion-container">', unsafe_allow_html=True)
+            st.markdown('<div class="suggestion-title">💡 Câu hỏi gợi ý cho bạn:</div>', unsafe_allow_html=True)
+            
+            # Tạo câu hỏi gợi ý động
+            suggested_questions = generate_dynamic_suggested_questions(
+                api_key=openai_api_key,
+                member_id=st.session_state.current_member,
+                max_questions=5
+            )
+            
+            # Hiển thị các nút cho câu hỏi gợi ý
+            st.markdown('<div class="suggestion-box">', unsafe_allow_html=True)
+            
+            # Chia câu hỏi thành 2 dòng
+            row1, row2 = st.columns([1, 1])
+            
+            with row1:
+                for i, question in enumerate(suggested_questions[:3]):
+                    if st.button(
+                        question,
+                        key=f"suggest_q_{i}",
+                        use_container_width=True
+                    ):
+                        handle_suggested_question(question)
+            
+            with row2:
+                for i, question in enumerate(suggested_questions[3:], 3):
+                    if st.button(
+                        question,
+                        key=f"suggest_q_{i}",
+                        use_container_width=True
+                    ):
+                        handle_suggested_question(question)
+            
+            st.markdown('</div></div>', unsafe_allow_html=True)
+
+        # Thêm chức năng hình ảnh
+        with st.sidebar:
+            st.divider()
+            st.write("## 🖼️ Hình ảnh")
+            st.write("Thêm hình ảnh để hỏi trợ lý về món ăn, hoạt động gia đình...")
+
+            def add_image_to_messages():
+                if st.session_state.uploaded_img or ("camera_img" in st.session_state and st.session_state.camera_img):
+                    img_type = st.session_state.uploaded_img.type if st.session_state.uploaded_img else "image/jpeg"
+                    raw_img = Image.open(st.session_state.uploaded_img or st.session_state.camera_img)
+                    img = get_image_base64(raw_img)
+                    st.session_state.messages.append(
+                        {
+                            "role": "user", 
+                            "content": [{
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{img_type};base64,{img}"}
+                            }]
+                        }
+                    )
+                    st.rerun()
+            
+            cols_img = st.columns(2)
+            with cols_img[0]:
+                with st.popover("📁 Tải lên"):
+                    st.file_uploader(
+                        "Tải lên hình ảnh:", 
+                        type=["png", "jpg", "jpeg"],
+                        accept_multiple_files=False,
+                        key="uploaded_img",
+                        on_change=add_image_to_messages,
+                    )
+
+            with cols_img[1]:                    
+                with st.popover("📸 Camera"):
+                    activate_camera = st.checkbox("Bật camera")
+                    if activate_camera:
+                        st.camera_input(
+                            "Chụp ảnh", 
+                            key="camera_img",
+                            on_change=add_image_to_messages,
+                        )
+
+        # Chat input và các tùy chọn âm thanh
+        audio_prompt = None
+        if "prev_speech_hash" not in st.session_state:
+            st.session_state.prev_speech_hash = None
+
+        # Ghi âm
+        st.write("🎤 Bạn có thể nói:")
+        speech_input = audio_recorder("Nhấn để nói", icon_size="2x", neutral_color="#6ca395")
+        if speech_input and st.session_state.prev_speech_hash != hash(speech_input):
+            st.session_state.prev_speech_hash = hash(speech_input)
+            
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=("audio.wav", speech_input),
+            )
+
+            audio_prompt = transcript.text
+
+        # Chat input
+        if prompt := st.chat_input("Xin chào! Tôi có thể giúp gì cho gia đình bạn?") or audio_prompt:
+            st.session_state.messages.append(
+                {
+                    "role": "user", 
+                    "content": [{
+                        "type": "text",
+                        "text": prompt or audio_prompt,
+                    }]
+                }
+            )
+            
+            # Hiển thị tin nhắn mới
+            with st.chat_message("user"):
+                st.markdown(prompt or audio_prompt)
+
+            with st.chat_message("assistant"):
+                st.write_stream(stream_llm_response(
+                    api_key=openai_api_key, 
+                    system_prompt=system_prompt,
+                    current_member=st.session_state.current_member
+                ))state.current_member and openai_api_key:
+                    summary = generate_chat_summary(st.session_state.messages, openai_api_key)
+                    save_chat_history(st.session_state.current_member, st.session_state.messages, summary)
+                # Xóa tin nhắn
+                st.session_state.pop("messages", None)
+
+        st.button(
+            "🗑️ Xóa lịch sử trò chuyện", 
+            on_click=reset_conversation,
+        )
+
+    # --- Nội dung chính ---
+    # Kiểm tra nếu người dùng đã nhập OpenAI API Key, nếu không thì hiển thị cảnh báo
+    if openai_api_key == "" or openai_api_key is None or "sk-" not in openai_api_key:
+        st.write("#")
+        st.warning("⬅️ Vui lòng nhập OpenAI API Key để tiếp tục...")
+        
+        st.write("""
+        ### Chào mừng bạn đến với Trợ lý Gia đình!
+        
+        Ứng dụng này giúp bạn:
+        
+        - 👨‍👩‍👧‍👦 Lưu trữ thông tin và sở thích của các thành viên trong gia đình
+        - 📅 Quản lý các sự kiện gia đình
+        - 📝 Tạo và lưu trữ các ghi chú
+        - 💬 Trò chuyện với trợ lý AI để cập nhật thông tin
+        - 👤 Cá nhân hóa trò chuyện theo từng thành viên
+        - 🔍 Tìm kiếm thông tin thời gian thực với Tavily API
+        - 📜 Lưu lịch sử trò chuyện và tạo tóm tắt tự động
+        
+        Để bắt đầu, hãy nhập OpenAI API Key của bạn ở thanh bên trái.
+        """)
+
+    else:
+        client = OpenAI(api_key=openai_api_key)
+
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        # Hiển thị các tin nhắn trước đó nếu có
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                for content in message["content"]:
+                    if content["type"] == "text":
+                        st.write(content["text"])
+                    elif content["type"] == "image_url":      
+                        st.image(content["image_url"]["url"])
+
+        # Hiển thị banner thông tin người dùng hiện tại
+        if st.session_state.current_member and st.session_state.current_member in family_data:
+            member_name = family_data[st.session_state.current_member].get("name", "")
+            st.info(f"👤 Đang trò chuyện với tư cách: **{member_name}**")
+        elif st.session_state.current_member is None:
+            st.info("👨‍👩‍👧‍👦 Đang trò chuyện trong chế độ chung")
+            
+        # Hiển thị banner thông tin về tìm kiếm
+        if tavily_api_key:
+            st.success("🔍 Trợ lý có khả năng tìm kiếm thông tin thời gian thực! Hỏi về tin tức, thể thao, thời tiết, v.v.")
+        
+        # System prompt cho trợ lý
+        system_prompt = f"""
+        Bạn là trợ lý gia đình thông minh. Nhiệm vụ của bạn là giúp quản lý thông tin về các thành viên trong gia đình, 
+        sở thích của họ, các sự kiện, ghi chú, và phân tích hình ảnh liên quan đến gia đình. Khi người dùng yêu cầu, bạn phải thực hiện ngay các hành động sau:
+        
+        1. Thêm thông tin về thành viên gia đình (tên, tuổi, sở thích)
+        2. Cập nhật sở thích của thành viên gia đình
+        3. Thêm, cập nhật, hoặc xóa sự kiện
+        4. Thêm ghi chú
+        5. Phân tích hình ảnh người dùng đưa ra (món ăn, hoạt động gia đình, v.v.)
+        6. Tìm kiếm thông tin thực tế khi được hỏi về tin tức, thời tiết, thể thao, và sự kiện hiện tại
+        
+        QUAN TRỌNG: Khi cần thực hiện các hành động trên, bạn PHẢI sử dụng đúng cú pháp lệnh đặc biệt này (người dùng sẽ không nhìn thấy):
+        
+        - Thêm thành viên: ##ADD_FAMILY_MEMBER:{{"name":"Tên","age":"Tuổi","preferences":{{"food":"Món ăn","hobby":"Sở thích","color":"Màu sắc"}}}}##
+        - Cập nhật sở thích: ##UPDATE_PREFERENCE:{{"id":"id_thành_viên","key":"loại_sở_thích","value":"giá_trị"}}##
+        - Thêm sự kiện: ##ADD_EVENT:{{"title":"Tiêu đề","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả","participants":["Tên1","Tên2"]}}##
+        - Cập nhật sự kiện: ##UPDATE_EVENT:{{"id":"id_sự_kiện","title":"Tiêu đề mới","date":"YYYY-MM-DD","time":"HH:MM","description":"Mô tả mới","participants":["Tên1","Tên2"]}}##
+        - Xóa sự kiện: ##DELETE_EVENT:id_sự_kiện##
+        - Thêm ghi chú: ##ADD_NOTE:{{"title":"Tiêu đề","content":"Nội dung","tags":["tag1","tag2"]}}##
+        
+        QUY TẮC THÊM SỰ KIỆN ĐƠN GIẢN:
+        1. Khi được yêu cầu thêm sự kiện, hãy thực hiện NGAY LẬP TỨC mà không cần hỏi thêm thông tin không cần thiết.
+        2. Khi người dùng nói "ngày mai" hoặc "tuần sau", hãy tự động tính toán ngày trong cú pháp YYYY-MM-DD.
+        3. Nếu không có thời gian cụ thể, sử dụng thời gian mặc định là 19:00.
+        4. Sử dụng mô tả ngắn gọn từ yêu cầu của người dùng.
+        5. Chỉ hỏi thông tin nếu thực sự cần thiết, tránh nhiều bước xác nhận.
+        6. Sau khi thêm/cập nhật/xóa sự kiện, tóm tắt ngắn gọn hành động đã thực hiện.
+        
+        TÌM KIẾM THÔNG TIN THỜI GIAN THỰC:
+        1. Khi người dùng hỏi về tin tức, thời tiết, thể thao, sự kiện hiện tại, thông tin sản phẩm mới, hoặc bất kỳ dữ liệu cập nhật nào, hệ thống đã tự động tìm kiếm thông tin thực tế cho bạn.
+        2. Hãy sử dụng thông tin tìm kiếm này để trả lời người dùng một cách chính xác và đầy đủ.
+        3. Luôn đề cập đến nguồn thông tin khi sử dụng kết quả tìm kiếm.
+        4. Nếu không có thông tin tìm kiếm, hãy trả lời dựa trên kiến thức của bạn và lưu ý rằng thông tin có thể không cập nhật.
+        
+        Hôm nay là {datetime.datetime.now().strftime("%d/%m/%Y")}.
+        
+        CẤU TRÚC JSON PHẢI CHÍNH XÁC như trên. Đảm bảo dùng dấu ngoặc kép cho cả keys và values. Đảm bảo các dấu ngoặc nhọn và vuông được đóng đúng cách.
+        
+        QUAN TRỌNG: Khi người dùng yêu cầu tạo sự kiện mới, hãy luôn sử dụng lệnh ##ADD_EVENT:...## trong phản hồi của bạn mà không cần quá nhiều bước xác nhận.
+        
+        Đối với hình ảnh:
+        - Nếu người dùng gửi hình ảnh món ăn, hãy mô tả món ăn, và đề xuất cách nấu hoặc thông tin dinh dưỡng nếu phù hợp
+        - Nếu là hình ảnh hoạt động gia đình, hãy mô tả hoạt động và đề xuất cách ghi nhớ khoảnh khắc đó
+        - Với bất kỳ hình ảnh nào, hãy giúp người dùng liên kết nó với thành viên gia đình hoặc sự kiện nếu phù hợp
+        """
+        
+        # Thêm thông tin về người dùng hiện tại
+        if st.session_state.current_member and st.session_state.current_member in family_data:
+            current_member = family_data[st.session_state.current_member]
+            system_prompt += f"""
+            THÔNG TIN NGƯỜI DÙNG HIỆN TẠI:
+            Bạn đang trò chuyện với: {current_member.get('name')}
+            Tuổi: {current_member.get('age', '')}
+            Sở thích: {json.dumps(current_member.get('preferences', {}), ensure_ascii=False)}
+            
+            QUAN TRỌNG: Hãy điều chỉnh cách giao tiếp và đề xuất phù hợp với người dùng này. Các sự kiện và ghi chú sẽ được ghi danh nghĩa người này tạo.
+            """
+        
+        # Thêm thông tin dữ liệu
+        system_prompt += f"""
+        Thông tin hiện tại về gia đình:
+        {json.dumps(family_data, ensure_ascii=False, indent=2)}
+        
+        Sự kiện sắp tới:
+        {json.dumps(events_data, ensure_ascii=False, indent=2)}
+        
+        Ghi chú:
+        {json.dumps(notes_data, ensure_ascii=False, indent=2)}
+        
+        Hãy hiểu và đáp ứng nhu cầu của người dùng một cách tự nhiên và hữu ích. Không hiển thị các lệnh đặc biệt
+        trong phản hồi của bạn, chỉ sử dụng chúng để thực hiện các hành động được yêu cầu.
+        """
+        
+        # Kiểm tra và xử lý câu hỏi gợi ý đã chọn
+        if st.session_state.process_suggested and st.session_state.suggested_question:
+            question = st.session_state.suggested_question
+            st.session_state.suggested_question = None
+            st.session_state.process_suggested = False
+            
+            # Thêm câu hỏi vào messages
+            st.session_state.messages.append(
+                {
+                    "role": "user", 
+                    "content": [{
+                        "type": "text",
+                        "text": question,
+                    }]
+                }
+            )
+            
+            # Hiển thị tin nhắn người dùng
+            with st.chat_message("user"):
+                st.markdown(question)
+            
+            # Xử lý phản hồi từ trợ lý
+            with st.chat_message("assistant"):
+                st.write_stream(stream_llm_response(
+                    api_key=openai_api_key, 
+                    system_prompt=system_prompt,
+                    current_member=st.session_state.current_member
+                ))
+
+if __name__=="__main__":
+    main()
             
             # Rerun để cập nhật giao diện và tránh xử lý trùng lặp
             st.rerun()
@@ -1892,6 +2275,3 @@ def main():
                     system_prompt=system_prompt,
                     current_member=st.session_state.current_member
                 ))
-
-if __name__=="__main__":
-    main()
