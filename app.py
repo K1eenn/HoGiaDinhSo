@@ -12,6 +12,7 @@ import random
 import hashlib
 import requests
 import time
+import re 
 
 dotenv.load_dotenv()
 
@@ -1667,7 +1668,7 @@ def main():
         QUY TẮC THÊM SỰ KIỆN ĐƠN GIẢN:
         1. Khi được yêu cầu thêm sự kiện, hãy thực hiện NGAY LẬP TỨC mà không cần hỏi thêm thông tin không cần thiết.
         2. Khi người dùng nói "ngày mai" hoặc "tuần sau", hãy tự động tính toán ngày trong cú pháp YYYY-MM-DD.
-        3. Nếu không có thời gian cụ thể, sử dụng thời gian mặc định là 19:00.
+        3. Nếu không có thời gian cụ thể, sử dụng thời gian mặc định là 8:00.
         4. Sử dụng mô tả ngắn gọn từ yêu cầu của người dùng.
         5. Chỉ hỏi thông tin nếu thực sự cần thiết, tránh nhiều bước xác nhận.
         6. Sau khi thêm/cập nhật/xóa sự kiện, tóm tắt ngắn gọn hành động đã thực hiện.
